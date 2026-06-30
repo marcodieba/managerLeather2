@@ -1,0 +1,540 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulador Logístico Pro - Romaneio</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'pedido/simulador_logistica.css' %}">
+
+  <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+</head>
+
+<body>
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h2 class="app-title">Lego Logístico Pro</h2>
+    <p class="app-subtitle">Romaneio → Pallets → Caminhão</p>
+  </div>
+
+  <div class="sidebar-content">
+    <div class="section-title">BUSCAR EMBARQUE PREVISTO</div>
+
+    <div class="form-group">
+      <label>Data do embarque</label>
+      <input type="date" id="search-emb-date" class="form-control" value="{{ data_atual|date:'Y-m-d' }}">
+    </div>
+
+    <div class="form-group">
+      <label>Filtrar por placa / cidade / UF (opcional)</label>
+      <input type="text" id="search-emb-text" class="form-control" placeholder="Digite placa, cidade ou UF...">
+    </div>
+
+    <div class="row-actions">
+      <button class="btn btn-primary" type="button" onclick="buscarEmbarquesPrevistos()">Listar embarques</button>
+      <button class="btn btn-secondary" type="button" onclick="limparListaEmbarquesPrevistos()">Limpar</button>
+    </div>
+
+    <div id="embarques-previstos-list" class="small-table" style="margin-top:6px;"></div>
+
+    <div class="section-title">CONFIGURAÇÃO DO VEÍCULO</div>
+
+    <div class="form-group">
+      <label>Tipo de caminhão / Veículo cadastrado</label>
+
+      <select id="truck-select" class="form-control" data-enter-nav="1" onchange="initTruck()">
+        <option value="">Selecione...</option>
+
+        <optgroup label="Padrões (TipoVeiculo do sistema)">
+          {% for t in tipos_veiculo %}
+            <option
+              value="tipo_{{ t.id }}"
+              data-mode="padrao"
+              data-tipo-veiculo-id="{{ t.id }}"
+              data-l="{{ t.profundidade_util }}"
+              data-w="{{ t.largura_util }}"
+              data-cap="{{ t.capacidade_m2 }}"
+            >
+              {{ t.nome }} ({{ t.profundidade_util }}m x {{ t.largura_util }}m)
+            </option>
+          {% endfor %}
+        </optgroup>
+
+        <optgroup label="Cadastrados no sistema (placa/transportadora)">
+          {% for v in veiculos %}
+            <option
+              value="db_{{ v.id }}"
+              data-mode="db"
+              data-veiculo-id="{{ v.id }}"
+              data-profundidade="{{ v.tipo.profundidade_util }}"
+              data-largura="{{ v.tipo.largura_util }}"
+              data-capacidade="{{ v.tipo.capacidade_m2 }}"
+            >
+              {{ v.placa }} - {{ v.tipo.nome }} ({{ v.transportadora.nome }})
+            </option>
+          {% endfor %}
+        </optgroup>
+      </select>
+
+      <div class="hint">
+        Você pode salvar usando um padrão: o sistema vai gravar com um Veículo genérico do tipo selecionado.
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Data do carregamento</label>
+      <input type="date" id="load-date" class="form-control" data-enter-nav="1" value="{{ data_atual|date:'Y-m-d' }}">
+    </div>
+
+    <div class="divider">
+      <label class="mini-title">ESPECIFICAÇÕES DO PALLET (manual)</label>
+
+      <div class="grid-3">
+        <div class="form-group">
+          <label>Comp.(m)</label>
+          <input type="number" id="p-l" class="form-control" data-enter-nav="1" value="1.0" step="0.1" min="0.1">
+        </div>
+        <div class="form-group">
+          <label>Larg.(m)</label>
+          <input type="number" id="p-w" class="form-control" data-enter-nav="1" value="1.2" step="0.1" min="0.1">
+        </div>
+        <div class="form-group">
+          <label>Alt.(m)</label>
+          <input type="number" id="p-h" class="form-control" data-enter-nav="1" value="1.0" step="0.1" min="0.1">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Nível de remonte</label>
+        <select id="p-z" class="form-control" data-enter-nav="1">
+          <option value="0">Nível 0 (Chão)</option>
+          <option value="1">Nível 1 (Remonte)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- NOVA SEÇÃO: PREVISÃO POR PEDIDO -->
+    <div class="section-title">PREVISÃO POR PEDIDO</div>
+
+    <div class="form-group">
+      <div class="grid-3">
+        <div>
+          <label>nr_contract</label>
+          <input type="text" id="prev-nr-contract" class="form-control" placeholder="Contrato...">
+        </div>
+        <div>
+          <label>nr_pedido_interno</label>
+          <input type="text" id="prev-nr-interno" class="form-control" placeholder="Opcional...">
+        </div>
+        <div>
+          <label>M² prevista</label>
+          <input type="number" id="prev-m2" class="form-control" step="0.001" min="0.001">
+        </div>
+      </div>
+      <div class="row-actions" style="margin-top: 6px;">
+        <button class="btn btn-primary" type="button" onclick="addPrevisaoItem()">Adicionar à lista</button>
+        <button class="btn btn-danger" type="button" onclick="clearPrevisaoList()">Limpar lista</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Pedidos previstos neste embarque</label>
+      <div id="previsao-itens-list" class="small-table">
+        <!-- tabela será preenchida via JS -->
+      </div>
+    </div>
+
+    <div class="section-title">BUSCAR ROMANEIO (fase real)</div>
+
+    <div class="form-group">
+      <label>Cd_Romaneo_Faturamento</label>
+      <input type="text" id="cd-romaneio" class="form-control" data-enter-nav="1" placeholder="Digite o código do romaneio...">
+
+      <div class="row-actions">
+        <button class="btn btn-primary" type="button" id="btn-buscar" data-enter-nav="1" onclick="buscarRomaneio()">Buscar</button>
+        <button class="btn btn-danger" type="button" data-enter-nav="1" onclick="limparLista()">Limpar lista</button>
+      </div>
+
+      <div id="msg-ok" class="ok-box"></div>
+      <div id="msg-err" class="error-box"></div>
+    </div>
+
+    <div class="section-title">PALLETS DO ROMANEIO</div>
+
+    <div class="search-box">
+      <input type="text" id="search-input" class="form-control" data-enter-nav="1"
+             placeholder="Filtrar por cliente/produto/pallet..." onkeyup="filterPallets()">
+    </div>
+
+    <div id="orders-list"></div>
+  </div>
+</div>
+
+<div class="main-view">
+  <div class="toolbar">
+    <div>
+      <span id="truck-name-display" class="toolbar-title">Selecione um caminhão</span>
+      <div class="hint" id="romaneio-display"></div>
+      <div class="hint" id="embarque-previsto-display"></div>
+    </div>
+    <div class="toolbar-actions">
+      <!-- previsão -->
+      <button class="btn btn-secondary" type="button" onclick="iniciarLogisticaPrevisao()">Iniciar logística (previsão)</button>
+      <button class="btn btn-primary" type="button" onclick="converterPrevisaoParaEmbarque()">Gerar embarque deste previsto</button>
+      <!-- layout romaneio real (já existente) -->
+      <button class="btn btn-danger" type="button" onclick="clearTruck()">Limpar mapa</button>
+      <button class="btn btn-success" id="btn-salvar" type="button" onclick="saveLayout()">Salvar no Banco (romaneio real)</button>
+    </div>
+  </div>
+
+  <div id="truck-visual" class="truck-container">
+    <div class="truck-cab">FRENTE</div>
+    <div id="truck-bed" class="truck-bed"></div>
+  </div>
+
+  <div id="stats-bar">
+    <div class="stat-item"><b>DIM:</b> <span id="stat-dim">-</span></div>
+    <div class="stat-item"><b>CAP:</b> <span id="stat-cap">-</span></div>
+    <div class="stat-item"><b>OCUP:</b> <span id="stat-used">0.0m²</span></div>
+    <div class="stat-item"><b>%:</b> <span id="stat-perc">0%</span></div>
+  </div>
+</div>
+
+<script>
+  // ==========================
+  // Utilitários básicos
+  // ==========================
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(";").shift();
+    return null;
+  }
+
+  // guarda o ID do embarque previsto selecionado/criado
+  window.CURRENT_EMBARQUE_ID = null;
+  // lista em memória dos itens de previsão antes de enviar ao backend
+  window.PREVISAO_ITENS = [];
+
+  // ==========================
+  // Lista de pedidos previstos (lado esquerdo)
+  // ==========================
+  function renderPrevisaoList() {
+    const container = document.getElementById("previsao-itens-list");
+    if (!container) return;
+
+    if (!window.PREVISAO_ITENS.length) {
+      container.innerHTML =
+        "<p style='font-size: 12px; color: #666;'>Nenhum pedido adicionado.</p>";
+      return;
+    }
+
+    let html =
+      "<table class='table table-sm'><thead><tr>" +
+      "<th>nr_contract</th><th>nr_pedido_interno</th><th>M² prevista</th><th></th>" +
+      "</tr></thead><tbody>";
+
+    window.PREVISAO_ITENS.forEach((it, idx) => {
+      html += `<tr>
+        <td>${it.nr_contract || "—"}</td>
+        <td>${it.nr_pedido_interno || "—"}</td>
+        <td>${it.m2_previsto.toFixed(3)}</td>
+        <td><button type="button" class="btn btn-link btn-sm" onclick="removePrevisaoItem(${idx})">x</button></td>
+      </tr>`;
+    });
+
+    html += "</tbody></table>";
+    container.innerHTML = html;
+  }
+
+  function addPrevisaoItem() {
+    const nrContract = document.getElementById("prev-nr-contract").value.trim();
+    const nrInterno = document.getElementById("prev-nr-interno").value.trim();
+    const m2Val = parseFloat(document.getElementById("prev-m2").value);
+
+    if (!nrContract && !nrInterno) {
+      alert("Informe ao menos nr_contract ou nr_pedido_interno.");
+      return;
+    }
+    if (!m2Val || m2Val <= 0) {
+      alert("Informe uma metragem prevista válida (> 0).");
+      return;
+    }
+
+    window.PREVISAO_ITENS.push({
+      nr_contract: nrContract || null,
+      nr_pedido_interno: nrInterno || null,
+      m2_previsto: m2Val,
+    });
+
+    document.getElementById("prev-m2").value = "";
+    renderPrevisaoList();
+  }
+
+  function removePrevisaoItem(idx) {
+    window.PREVISAO_ITENS.splice(idx, 1);
+    renderPrevisaoList();
+  }
+
+  function clearPrevisaoList() {
+    window.PREVISAO_ITENS = [];
+    renderPrevisaoList();
+  }
+
+  // ==========================
+  // Iniciar logística (criar embarque previsto)
+  // ==========================
+  async function iniciarLogisticaPrevisao() {
+    const loadDate = document.getElementById("load-date").value;
+    if (!loadDate) {
+      alert("Informe a data de carregamento.");
+      return;
+    }
+
+    const truckSelect = document.getElementById("truck-select");
+    const selected = truckSelect.options[truckSelect.selectedIndex];
+    if (!selected || !selected.value) {
+      alert("Selecione um caminhão ou tipo de veículo.");
+      return;
+    }
+
+    if (!window.PREVISAO_ITENS.length) {
+      alert("Adicione pelo menos um pedido à lista de previsão.");
+      return;
+    }
+
+    let veiculo_id = null;
+    let tipo_veiculo_id = null;
+    const mode = selected.getAttribute("data-mode");
+    if (mode === "db") {
+      veiculo_id = selected.getAttribute("data-veiculo-id");
+    } else if (mode === "padrao") {
+      tipo_veiculo_id = selected.getAttribute("data-tipo-veiculo-id");
+    }
+
+    const payload = {
+      data_embarque: loadDate,
+      veiculo_id: veiculo_id,
+      tipo_veiculo_id: tipo_veiculo_id,
+      itens: window.PREVISAO_ITENS,
+    };
+
+    try {
+      const resp = await fetch(window.SIM_URLS.INICIAR_PREVISAO, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("csrftoken"),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || data.status !== "success") {
+        alert(data.message || "Erro ao iniciar logística (previsão).");
+        return;
+      }
+
+      window.CURRENT_EMBARQUE_ID = data.embarque_id;
+      const infoEl = document.getElementById("embarque-previsto-display");
+      if (infoEl) {
+        infoEl.innerText =
+          "Embarque previsto ID " +
+          data.embarque_id +
+          " (reservas: " +
+          data.reservas_criadas +
+          ")";
+      }
+      alert("Previsão criada para Embarque ID " + data.embarque_id);
+    } catch (e) {
+      console.error(e);
+      alert("Erro inesperado ao iniciar logística.");
+    }
+  }
+
+  // ==========================
+  // Converter previsão em embarque real (se você usar essa view)
+  // ==========================
+  async function converterPrevisaoParaEmbarque() {
+    if (!window.CURRENT_EMBARQUE_ID) {
+      alert("Nenhum embarque previsto selecionado/criado.");
+      return;
+    }
+
+    const loadDate = document.getElementById("load-date").value;
+    if (!loadDate) {
+      alert("Informe a data de embarque.");
+      return;
+    }
+
+    const truckSelect = document.getElementById("truck-select");
+    const selected = truckSelect.options[truckSelect.selectedIndex];
+    if (!selected || !selected.value) {
+      alert("Selecione um caminhão ou tipo de veículo.");
+      return;
+    }
+
+    let veiculo_id = null;
+    let tipo_veiculo_id = null;
+    const mode = selected.getAttribute("data-mode");
+    if (mode === "db") {
+      veiculo_id = selected.getAttribute("data-veiculo-id");
+    } else if (mode === "padrao") {
+      tipo_veiculo_id = selected.getAttribute("data-tipo-veiculo-id");
+    }
+
+    const payload = {
+      previsao_id: window.CURRENT_EMBARQUE_ID,
+      veiculo_id: veiculo_id,
+      tipo_veiculo_id: tipo_veiculo_id,
+      data_embarque: loadDate,
+    };
+
+    try {
+      const resp = await fetch(window.SIM_URLS.CONVERTER_PREVISAO, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("csrftoken"),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || data.status !== "success") {
+        alert(data.message || "Erro ao converter previsão.");
+        return;
+      }
+
+      alert("Embarque criado. ID " + data.embarque_id);
+    } catch (e) {
+      console.error(e);
+      alert("Erro inesperado ao converter previsão.");
+    }
+  }
+
+  // ==========================
+  // Buscar e selecionar embarques previstos existentes (topo da sidebar)
+  // ==========================
+  async function buscarEmbarquesPrevistos() {
+    const data = document.getElementById("search-emb-date").value;
+    const q = document.getElementById("search-emb-text").value.trim();
+    const container = document.getElementById("embarques-previstos-list");
+
+    if (!container) return;
+
+    if (!data) {
+      alert("Informe a data para buscar embarques previstos.");
+      return;
+    }
+
+    container.innerHTML =
+      "<p style='font-size:12px;color:#666;'>Buscando...</p>";
+
+    const params = new URLSearchParams({ data: data });
+    if (q) params.append("q", q);
+
+    try {
+      const resp = await fetch(
+        window.SIM_URLS.LISTAR_EMBARQUES_PREVISTOS +
+          "?" +
+          params.toString(),
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        }
+      );
+
+      const dataResp = await resp.json();
+      if (!resp.ok || dataResp.status !== "success") {
+        container.innerHTML =
+          "<p style='font-size:12px;color:#c0392b;'>" +
+          (dataResp.message || "Erro na busca de embarques.") +
+          "</p>";
+        return;
+      }
+
+      const items = dataResp.items || [];
+      if (!items.length) {
+        container.innerHTML =
+          "<p style='font-size:12px;color:#666;'>Nenhum embarque encontrado.</p>";
+        return;
+      }
+
+      let html =
+        "<table class='table table-sm'><thead><tr>" +
+        "<th>ID</th><th>Placa</th><th>Tipo</th><th>Transportadora</th><th>Status</th><th></th>" +
+        "</tr></thead><tbody>";
+
+      items.forEach((e) => {
+        const placaEsc = (e.placa || "").replace("'", "\\'");
+        const tipoEsc = (e.tipo || "").replace("'", "\\'");
+        html += `<tr>
+          <td>#${e.id}</td>
+          <td>${e.placa}</td>
+          <td>${e.tipo}</td>
+          <td>${e.transportadora}</td>
+          <td>${e.finalizado ? "Finalizado" : "Aberto"}</td>
+          <td>
+            <button type="button" class="btn btn-link btn-sm"
+              onclick="selecionarEmbarquePrevisto(${e.id}, '${placaEsc}', '${tipoEsc}')">
+              Usar
+            </button>
+          </td>
+        </tr>`;
+      });
+
+      html += "</tbody></table>";
+      container.innerHTML = html;
+    } catch (err) {
+      console.error(err);
+      container.innerHTML =
+        "<p style='font-size:12px;color:#c0392b;'>Erro inesperado na busca.</p>";
+    }
+  }
+
+  function limparListaEmbarquesPrevistos() {
+    const container = document.getElementById("embarques-previstos-list");
+    if (container) container.innerHTML = "";
+  }
+
+  function selecionarEmbarquePrevisto(id, placa, tipoNome) {
+    window.CURRENT_EMBARQUE_ID = id;
+    const infoEl = document.getElementById("embarque-previsto-display");
+    if (infoEl) {
+      infoEl.innerText =
+        "Continuando embarque previsto #" +
+        id +
+        " (" +
+        placa +
+        " - " +
+        tipoNome +
+        ")";
+    }
+    alert(
+      "Embarque previsto #" +
+        id +
+        " selecionado. Agora prossiga com o romaneio."
+    );
+  }
+
+  // ==========================
+  // Inicialização
+  // ==========================
+  renderPrevisaoList();
+</script>
+<script>
+  window.SIM_URLS = {
+    API_ROMANEIO: "{% url 'api_romaneio_pallets' %}",
+    SALVAR_LAYOUT: "{% url 'salvar_layout_logistica' %}",
+    INICIAR_PREVISAO: "{% url 'iniciar_logistica_previsao' %}",
+    CONVERTER_PREVISAO: "{% url 'converter_previsao_para_embarque' %}",
+    LISTAR_EMBARQUES_PREVISTOS: "{% url 'listar_embarques_previstos' %}",
+  };
+</script>
+
+<script src="{% static 'pedido/simulador_logistica.js' %}"></script>
+</body>
+</html>

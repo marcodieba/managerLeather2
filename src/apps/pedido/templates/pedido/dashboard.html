@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Gerencial</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --primary: #2563eb;
+            --success: #16a34a;
+            --warning: #f59e0b;
+            --danger: #dc2626;
+            --border: #e2e8f0;
+        }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); margin: 0; padding: 20px; color: var(--text-main); }
+        h1 { margin-top: 0; font-size: 24px; color: var(--text-main); border-bottom: 2px solid var(--border); padding-bottom: 10px; }
+        
+        .section-title { font-size: 16px; text-transform: uppercase; color: var(--text-muted); margin: 30px 0 15px 0; font-weight: 700; letter-spacing: 1px; }
+        
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        
+        .card { background: var(--card-bg); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid var(--border); display: flex; flex-direction: column; justify-content: space-between; }
+        
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .card-title { font-size: 14px; font-weight: 600; color: var(--text-muted); margin: 0; }
+        .card-icon { font-size: 20px; }
+        
+        .card-value { font-size: 28px; font-weight: 700; margin: 0; color: var(--text-main); }
+        .card-subtext { font-size: 12px; color: var(--text-muted); margin-top: 5px; font-weight: 600; }
+        
+        .text-primary { color: var(--primary) !important; }
+        .text-success { color: var(--success) !important; }
+        .text-warning { color: var(--warning) !important; }
+        .text-danger { color: var(--danger) !important; }
+        
+        /* Ícones decorativos simples (Emojis) */
+        .icon-cart { color: var(--primary); }
+        .icon-factory { color: var(--warning); }
+        .icon-truck { color: var(--success); }
+        .icon-alert { color: var(--danger); }
+        
+        /* Estilo para unidades de medida */
+        .unit-badge {
+            display: inline-block;
+            background-color: var(--border);
+            color: var(--text-muted);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+        
+        /* Subseção para cada unidade de medida */
+        .unit-section {
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #f0f4f8;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+        }
+        
+        .unit-section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-main);
+            margin: 0 0 15px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Responsividade */
+        @media (max-width: 768px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
+            .card { padding: 15px; }
+            .card-value { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>📊 Dashboard Gerencial - Visão Geral</h1>
+
+    <!-- COMERCIAL / PEDIDOS -->
+    <div class="section-title">Comercial & Carteira de Pedidos</div>
+    
+    <!-- Totais Gerais (compatibilidade) -->
+    <div class="dashboard-grid">
+        <div class="card">
+            <div class="card-header">
+                <p class="card-title">Total em Carteira (Aberto)</p>
+                <span class="card-icon icon-cart">💼</span>
+            </div>
+            <p class="card-value">{{ total_carteira_m2|floatformat:2 }}</p>
+            <p class="card-subtext">Soma de todos os pedidos ativos</p>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <p class="card-title">Saldo Pendente Embarque</p>
+                <span class="card-icon icon-cart">⏳</span>
+            </div>
+            <p class="card-value text-primary">{{ total_pendente_m2|floatformat:2 }}</p>
+            <p class="card-subtext">O que falta produzir/despachar</p>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <p class="card-title">Pedidos Atrasados</p>
+                <span class="card-icon icon-alert">⚠️</span>
+            </div>
+            <p class="card-value text-danger">{{ qtd_pedidos_atrasados }} <span style="font-size:16px;">pedidos</span></p>
+            <p class="card-subtext">{{ m2_atrasado|floatformat:2 }} com prazo vencido</p>
+        </div>
+    </div>
+
+    <!-- Detalhamento por Unidade de Medida -->
+    <div class="section-title">Detalhamento por Unidade de Medida</div>
+    {% for unidade, totais in totais_por_unidade.items %}
+        <div class="unit-section">
+            <div class="unit-section-title">📦 {{ unidade }}</div>
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <p class="card-title">Carteira ({{ unidade }})</p>
+                        <span class="card-icon icon-cart">📊</span>
+                    </div>
+                    <p class="card-value">{{ totais.carteira|floatformat:2 }}</p>
+                    <p class="card-subtext">Total em aberto nesta unidade</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <p class="card-title">Pendente ({{ unidade }})</p>
+                        <span class="card-icon icon-cart">⏳</span>
+                    </div>
+                    <p class="card-value text-primary">{{ totais.pendente|floatformat:2 }}</p>
+                    <p class="card-subtext">{{ totais.pendente_count }} pedidos aguardando embarque</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <p class="card-title">Atrasados ({{ unidade }})</p>
+                        <span class="card-icon icon-alert">⚠️</span>
+                    </div>
+                    <p class="card-value text-danger">{{ totais.atrasado|floatformat:2 }}</p>
+                    <p class="card-subtext">{{ totais.atrasado_count }} pedidos com prazo vencido</p>
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <p style="color: var(--text-muted); font-style: italic;">Nenhum pedido em aberto.</p>
+    {% endfor %}
+
+    <!-- PRODUÇÃO / REQUISIÇÕES -->
+    <div class="section-title">Produção (Últimos 30 Dias)</div>
+    <div class="dashboard-grid">
+        <div class="card">
+            <div class="card-header">
+                <p class="card-title">Lotes em Processo</p>
+                <span class="card-icon icon-factory">🏭</span>
+            </div>
+            <p class="card-value text-warning">{{ total_reqs_abertas }}</p>
+            <p class="card-subtext">Requisições não encerradas</p>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <p class="card-title">Volume em Produção</p>
+                <span class="card-icon icon-factory">📐</span>
+            </div>
+            <p class="card-value">{{ producao_m2|floatformat:2 }} <span style="font-size:16px;">m²</span></p>
+            <p class="card-subtext">Referente a {{ producao_pecas|floatformat:0 }} peças</p>
+        </div>
+    </div>
+
+    <!-- Detalhamento de Produção por Unidade (se disponível) -->
+    {% if producao_por_unidade %}
+        <div class="section-title">Produção por Unidade de Medida</div>
+        {% for unidade, producao in producao_por_unidade.items %}
+            <div class="unit-section">
+                <div class="unit-section-title">🏭 {{ unidade }}</div>
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <p class="card-title">Volume ({{ unidade }})</p>
+                            <span class="card-icon icon-factory">📊</span>
+                        </div>
+                        <p class="card-value">{{ producao.m2|floatformat:2 }} <span style="font-size:16px;">m²</span></p>
+                        <p class="card-subtext">{{ producao.quantidade|floatformat:0 }} peças</p>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <!-- LOGÍSTICA / EMBARQUES -->
+    <div class="section-title">Logística ({{ mes_atual }})</div>
+    <div class="dashboard-grid">
+        <div class="card">
+            <div class="card-header">
+                <p class="card-title">Embarques Abertos</p>
+                <span class="card-icon icon-truck">🚚</span>
+            </div>
+            <p class="card-value">{{ embarques_abertos }}</p>
+            <p class="card-subtext">Cargas em carregamento no momento</p>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <p class="card-title">Embarques Concluídos</p>
+                <span class="card-icon icon-truck">✅</span>
+            </div>
+            <p class="card-value text-success">{{ embarques_finalizados }}</p>
+            <p class="card-subtext">Despachados neste mês</p>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <p class="card-title">Volume Faturado / Embarcado</p>
+                <span class="card-icon icon-truck">📦</span>
+            </div>
+            <p class="card-value text-success">{{ volume_embarcado_mes|floatformat:2 }} <span style="font-size:16px;">m²</span></p>
+            <p class="card-subtext">Total baixado da carteira no mês</p>
+        </div>
+    </div>
+
+    <!-- Detalhamento de Embarques por Unidade (se disponível) -->
+    {% if volume_embarcado_por_unidade %}
+        <div class="section-title">Embarques por Unidade de Medida</div>
+        {% for unidade, volume in volume_embarcado_por_unidade.items %}
+            <div class="unit-section">
+                <div class="unit-section-title">🚚 {{ unidade }}</div>
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <p class="card-title">Volume Embarcado ({{ unidade }})</p>
+                            <span class="card-icon icon-truck">📊</span>
+                        </div>
+                        <p class="card-value text-success">{{ volume|floatformat:2 }}</p>
+                        <p class="card-subtext">Despachado neste mês</p>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+</body>
+</html>

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Ordem de Serviço</title>
+    <style>
+        * { box-sizing: border-box; } body { margin: 0; padding: 0; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; background-color: #f1f5f9; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh; } .container { width: 100%; max-width: 1100px; padding: 40px 20px; } h1, h2 { text-align: center; color: #2c3e50; margin-bottom: 30px; } form { background: #ffffff; padding: 25px 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 40px; } label { font-weight: 600; display: block; margin-top: 15px; color: #34495e; } input[type="text"], input[type="number"] { width: 100%; padding: 10px; margin-top: 6px; border-radius: 6px; border: 1px solid #ccd1d9; font-size: 16px; background-color: #fdfdfd; } .btn { margin-top: 25px; width: 100%; padding: 12px; color: #fff; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background-color 0.3s ease; text-align: center; display: inline-block; } .btn-primary { background-color: #3498db; } .btn-primary:hover { background-color: #2980b9; } .btn-danger { background-color: #e74c3c; padding: 5px 10px; font-size: 14px; width: auto; margin-top: 0; } .btn-secondary { background-color: #1abc9c; margin-top: 10px; } .btn-secondary:hover { background-color: #16a085; } .error { margin-top: 20px; color: #e74c3c; font-weight: bold; } table { width: 100%; border-collapse: collapse; background-color: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-top: 20px; } th, td { padding: 14px 16px; text-align: left; vertical-align: middle; } th { background-color: #3498db; color: white; font-weight: bold; } tr:nth-child(even) { background-color: #f9f9f9; } .search-container { position: relative; } #search-results { position: absolute; width: 100%; border: 1px solid #ccd1d9; border-top: none; max-height: 250px; overflow-y: auto; background: #fff; z-index: 1000; border-radius: 0 0 6px 6px; } #search-results:empty { display: none; } .result-item { padding: 12px; cursor: pointer; } .result-item:hover { background-color: #eef2f7; } .result-item.active { background-color: #3498db; color: #fff; } tfoot { font-weight: bold; background-color: #f0f4f7; border-top: 2px solid #3498db; } .btn-voltar { display: inline-block; padding: 8px 15px; background-color: #7f8c8d; color: #fff; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; transition: background-color 0.3s ease; } .btn-voltar:hover { background-color: #95a5a6; } @media print { body { background-color: #fff; padding: 0; margin: 0; } .no-print { display: none !important; } .container { width: 100%; max-width: none; padding: 0; box-shadow: none; } table { box-shadow: none; border: 1px solid #ccc; } h2 { text-align: left; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="no-print">
+        <h1>Ordem de Serviço 📝</h1>
+        <div class="no-print" style="margin-bottom: 20px; text-align: left;">
+            <a href="{% url 'admin:fluxo_requisicao_changelist' %}" class="btn-voltar">
+                &larr; Voltar para a Lista de Requisições
+            </a>
+        </div>
+        <form method="post" id="main-form">
+            {% csrf_token %}
+            <div class="search-container">
+                <label for="requisicao-search">Adicionar Requisição:</label>
+                <input type="text" id="requisicao-search" placeholder="Digite o nº da requisição ou lote..." autocomplete="off">
+                <div id="search-results"></div>
+            </div>
+            <table id="selected-requisitions-table" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>Nº Requisição</th>
+                        <th>Marca no Couro</th>
+                        <th style="width: 150px;">Qtd. para Cálculo</th>
+                        <th style="width: 100px;">Ação</th>
+                    </tr>
+                </thead>
+                <tbody id="requisitions-list-body">
+                </tbody>
+            </table>
+            <button type="submit" class="btn btn-primary">Processar Itens Selecionados</button>
+            {% if erro %}<div class="error">{{ erro }}</div>{% endif %}
+        </form>
+    </div>
+
+    {% if resultado %}
+        <div id="resultado-final">
+            <h2>Resultados Encontrados:</h2>
+            <table id="resultado-final-tabela">
+                <thead>
+                    <tr>
+                        <th>Nr OS</th>
+                        <th>Marca no Couro</th>
+                        <th id="header-quantidade-calculo">Qtd. p/ Cálculo</th>
+                        <th>Peças WB</th>
+                        <th>m² WB</th>
+                        <th>Média (m²/pç)</th> 
+                        <th>Resultado do Cálculo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ordem in resultado %}
+                    <tr>
+                        <td>{{ ordem.Nr_OS }}</td>
+                        <td>{{ ordem.Marca_Couro }}</td>
+                        <td>{{ ordem.Pecas_WB }}</td>
+                        <td>{{ ordem.Metro2_WB }}</td>
+                        <td>{{ ordem.Media_Metro_Peca }}</td>
+                        <td><strong>{{ ordem.Resultado }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="2">TOTAIS:</td>
+                        <td id="footer-total-quantidade"></td>
+                        <td><strong>{{ totais.pecas }}</strong></td>
+                        <td><strong>{{ totais.metro }}</strong></td>
+                        <td></td>
+                        <td><strong>{{ totais.resultado }}</strong></td>
+                    </tr>
+                </tfoot>
+            </table>
+            <button id="print-button" class="btn btn-secondary no-print">🖨️ Imprimir Resultado</button>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('requisicao-search');
+    const resultsDiv = document.getElementById('search-results');
+    const requisitionsTable = document.getElementById('selected-requisitions-table');
+    const requisitionsTbody = document.getElementById('requisitions-list-body');
+    const mainForm = document.getElementById('main-form');
+    let activeIndex = -1;
+
+    function extrairMarcaCouro(texto) {
+        const partes = String(texto ?? '').split(',');
+        return (partes.length > 1 ? partes.slice(1).join(',') : partes[0]).trim();
+    }
+
+    // --- BUSCA E ADIÇÃO DE REQUISIÇÕES ---
+    searchInput.addEventListener('input', function() {
+        activeIndex = -1;
+        const searchTerm = this.value;
+        if (searchTerm.length < 2) {
+            resultsDiv.innerHTML = '';
+            return;
+        }
+        fetch(`/busca/requisicao/?term=${encodeURIComponent(searchTerm)}`)
+            .then(response => response.json())
+            .then(data => {
+                resultsDiv.innerHTML = '';
+                data.forEach(item => {
+                    if (document.querySelector(`tr[data-id='${item.id}']`)) return;
+                    const resultItem = document.createElement('div');
+                    resultItem.classList.add('result-item');
+                    resultItem.textContent = `${item.numero} - ${item.cliente}`;
+                    resultItem.dataset.id = item.id;
+                    resultItem.dataset.numero = item.numero;
+                    resultItem.dataset.marca = item.cliente;
+                    resultItem.addEventListener('click', addItemToTable);
+                    resultsDiv.appendChild(resultItem);
+                });
+            });
+    });
+
+    searchInput.addEventListener('keydown', function(event) {
+        const items = resultsDiv.querySelectorAll('.result-item');
+        if (items.length === 0) return;
+        switch (event.key) {
+            case 'ArrowDown': event.preventDefault(); activeIndex = (activeIndex + 1) % items.length; updateHighlight(); break;
+            case 'ArrowUp': event.preventDefault(); activeIndex = (activeIndex - 1 + items.length) % items.length; updateHighlight(); break;
+            case 'Enter': event.preventDefault(); if (activeIndex > -1 && items[activeIndex]) items[activeIndex].click(); break;
+            case 'Escape': resultsDiv.innerHTML = ''; break;
+        }
+    });
+
+    function updateHighlight() {
+        const items = resultsDiv.querySelectorAll('.result-item');
+        items.forEach((item, index) => {
+            item.classList.toggle('active', index === activeIndex);
+            if (index === activeIndex) item.scrollIntoView({ block: 'nearest' });
+        });
+    }
+
+    function addItemToTable(event) {
+        const selectedItem = event.currentTarget;
+        requisitionsTable.style.display = 'table';
+
+        const marcaCouro = extrairMarcaCouro(selectedItem.dataset.marca);
+
+        const newRow = document.createElement('tr');
+        newRow.setAttribute('data-id', selectedItem.dataset.id);
+        newRow.innerHTML = `
+            <td>${selectedItem.dataset.numero}</td>
+            <td>${marcaCouro}</td>
+            <td>
+                <input type="number" name="quantidade" class="form-control quantidade-input" step="0.01" required placeholder="0.00">
+                <input type="hidden" name="requisicao_id" value="${selectedItem.dataset.id}">
+            </td>
+            <td><button type="button" class="btn btn-danger remove-item">Remover</button></td>
+        `;
+        requisitionsTbody.appendChild(newRow);
+        searchInput.value = '';
+        resultsDiv.innerHTML = '';
+
+        const qtdInput = newRow.querySelector('input[name="quantidade"]');
+        qtdInput.focus();
+
+        // ENTER na quantidade: volta para o input de busca
+        qtdInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchInput.focus();
+            }
+        });
+    }
+
+    requisitionsTbody.addEventListener('click', function(event) {
+        if (event.target.classList.contains('remove-item')) {
+            event.target.closest('tr').remove();
+            if (requisitionsTbody.children.length === 0) requisitionsTable.style.display = 'none';
+        }
+    });
+
+    // --- SALVAR QUANTIDADES ANTES DE PROCESSAR ---
+    mainForm.addEventListener('submit', function(event) {
+        const linhas = Array.from(requisitionsTbody.querySelectorAll('tr'));
+
+        linhas.forEach(linha => {
+            const marcaCouro = (linha.cells[1]?.textContent || '').trim();
+            if (!marcaCouro) linha.remove();
+        });
+
+        if (requisitionsTbody.children.length === 0) {
+            event.preventDefault();
+            requisitionsTable.style.display = 'none';
+            alert('Nenhuma requisição com marca no couro foi adicionada para processamento.');
+            return;
+        }
+
+        const inputsQuantidade = requisitionsTbody.querySelectorAll('input[name="quantidade"]');
+        const quantidades = [];
+        inputsQuantidade.forEach(input => quantidades.push(input.value || '0.00'));
+        sessionStorage.setItem('quantidadesParaExibir', JSON.stringify(quantidades));
+    });
+
+    // --- INSERIR QUANTIDADES NA TABELA DE RESULTADOS ---
+    const quantidadesSalvas = sessionStorage.getItem('quantidadesParaExibir');
+    const tabelaResultados = document.getElementById('resultado-final-tabela');
+    if (tabelaResultados && quantidadesSalvas) {
+        const quantidades = JSON.parse(quantidadesSalvas);
+        const linhasResultado = tabelaResultados.querySelectorAll('tbody tr');
+        let totalQuantidade = 0;
+
+        linhasResultado.forEach((linha, index) => {
+            if (quantidades[index] !== undefined) {
+                const valorQuantidade = parseFloat(String(quantidades[index]).replace(',', '.')) || 0;
+                totalQuantidade += valorQuantidade;
+                const celulaQtd = document.createElement('td');
+                celulaQtd.innerHTML = `<input type="number" step="0.01" class="editavel-qtd" value="${valorQuantidade.toFixed(2)}">`;
+                linha.insertBefore(celulaQtd, linha.cells[2]);
+            }
+        });
+
+        const footerTotalQuantidade = document.getElementById('footer-total-quantidade');
+        if (footerTotalQuantidade) footerTotalQuantidade.innerHTML = `<strong>${totalQuantidade.toFixed(2).replace('.', ',')}</strong>`;
+        sessionStorage.removeItem('quantidadesParaExibir');
+    }
+
+    // --- EDIÇÃO DE QUANTIDADES E RECALCULO DINÂMICO ---
+    if (tabelaResultados) {
+        tabelaResultados.addEventListener('input', function(e) {
+            if (e.target.classList.contains('editavel-qtd')) {
+                const linha = e.target.closest('tr');
+                const novaQtd = parseFloat(e.target.value) || 0;
+                const pecasWB = parseFloat(linha.cells[3].innerText.replace(',', '.')) || 0;
+                const metroWB = parseFloat(linha.cells[4].innerText.replace(',', '.')) || 0;
+                const media = parseFloat(linha.cells[5].innerText.replace(',', '.')) || 0;
+
+                const novoResultado = (novaQtd * media).toFixed(2);
+
+                linha.cells[6].innerHTML = `<strong>${novoResultado.replace('.', ',')}</strong>`;
+
+                atualizarTotais();
+                e.target.style.backgroundColor = '#ffeaa7';
+            }
+        });
+    }
+
+    function atualizarTotais() {
+        const tabela = document.getElementById('resultado-final-tabela');
+        if (!tabela) return;
+
+        let totalQtd = 0;
+        let totalResultado = 0;
+
+        tabela.querySelectorAll('tbody tr').forEach(linha => {
+            const qtdInput = linha.querySelector('.editavel-qtd');
+            const qtd = qtdInput ? parseFloat(qtdInput.value) || 0 : 0;
+            const resultado = parseFloat(linha.cells[6].innerText.replace(',', '.')) || 0;
+            totalQtd += qtd;
+            totalResultado += resultado;
+        });
+
+        const footerQtd = document.getElementById('footer-total-quantidade');
+        if (footerQtd) footerQtd.innerHTML = `<strong>${totalQtd.toFixed(2).replace('.', ',')}</strong>`;
+
+        const footerResultado = tabela.querySelector('tfoot tr td:last-child');
+        if (footerResultado) footerResultado.innerHTML = `<strong>${totalResultado.toFixed(2).replace('.', ',')}</strong>`;
+    }
+
+    // --- IMPRIMIR ---
+    const printButton = document.getElementById('print-button');
+    if (printButton) printButton.addEventListener('click', () => window.print());
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{% load pedido_extras %}
+
+{% if subtotais %}
+    {% for unidade, total in subtotais.items %}
+        {% if forloop.first %}
+            <tr style="background-color: #f2f2f2; font-weight: bold; border-top: 2px solid #ccc;">
+                <td colspan="4" style="text-align: right;">Subtotais:</td>
+                <td>{{ total|format_br }} ({{ unidade }})</td>
+                <td colspan="2"></td>
+            </tr>
+        {% else %}
+            <tr style="background-color: #f2f2f2; font-weight: bold;">
+                <td colspan="4" style="text-align: right;"></td>
+                <td>{{ total|format_br }} ({{ unidade }})</td>
+                <td colspan="2"></td>
+            </tr>
+        {% endif %}
+    {% endfor %}
+{% endif %}

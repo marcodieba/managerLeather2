@@ -1,0 +1,187 @@
+{% load mathfilters %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedido Interno de Matéria Prima</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+        }
+
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .navigation-buttons {
+            margin-bottom: 20px;
+        }
+
+        .navigation-buttons button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-bottom: 20px;
+        }
+
+        .navigation-buttons button:hover {
+            background-color: #0056b3;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+            font-size: 0.9em;
+            border-right: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+            color: #333;
+        }
+
+        th:last-child,
+        td:last-child {
+            border-right: none;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        tr:hover {
+            background-color: #e0e0e0;
+        }
+
+        .observacao {
+            background-color: #ffeb3b;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            text-align: center;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .info {
+            font-size: 0.8em;
+            color: #777;
+            margin-bottom: 5px;
+        }
+        .print-button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-bottom: 20px;
+        }
+
+        .print-button:hover {
+            background-color: #0056b3;
+        }
+
+        /* Estilos específicos para impressão */
+        @media print {
+      @page {
+        /* size: A4 landscape; */
+        margin: 10mm;
+      }
+
+      body {
+        margin: 0;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .navigation-buttons {
+                display: none; /* Esconde os botões de navegação na impressão */
+            }
+
+      .button-container {
+        display: none;
+      }
+
+      table {
+        font-size: 0.8em;
+        border-color: #000;
+      }
+
+      th, td {
+        padding: 6px;
+        border-color: #000;
+      }
+    }
+    </style>
+</head>
+<body>
+
+    <h2>PEDIDO INTERNO DE MATÉRIA PRIMA</h2>
+
+    <div class="navigation-buttons">
+        <button class="print-button" onclick="window.history.back()">Voltar</button>
+        <button class="print-button" onclick="window.print()">Imprimir</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>CLIENTE</th>
+                <th>ARTIGO</th>
+                <th>ESPE.<br>DIVISÃO</th>
+                <th>ESPE.<br>REBAIXE</th>
+                <th>CLASSE</th>
+                <th>DATA<br>SOLICITADA</th>
+                <th>PRAZO <br>FINAL</th>
+                <th>QT.<br>M²</th>
+                <th>QT.<br>ENTREGUE</th>
+                <th>VISTO POR</th>
+            </tr>
+        </thead>
+        {% for item in objetos %}
+        <tbody>
+            
+            <tr>
+                <td>{{item.cliente}}</td>
+                <td>{{item.artigo}}</td>
+                <td>espessura</td>
+                <td>-</td>
+                <td>{{item.selecao}}</td>
+                <td>{{item.dt_pedido|date:"d/m/Y"}}</td>
+                <td></td>
+                <td>{{ item.quantidade|mul:1.1|floatformat:2 }}</td>
+                <td></td>
+                <td></td>
+            </tr> 
+        </tbody>
+        {% endfor %}
+    </table>
+
+    <div class="observacao">
+        MÉDIA EM M² 1,70 + / ATENÇÃO NA CLASSE.
+    </div>
+
+    <p class="info">MÁRCIO COLOCOU O PRAZO DE NO MÁXIMO 72H / 03 DIAS PARA A ENTREGA DA MATÉRIA PRIMA</p>
+    <p class="info">QUALQUER DÚVIDA SOBRE PEDIDO (LEONARDO BARROS, PCP - SEMI ACABADO)</p>
+
+</body>
+</html>

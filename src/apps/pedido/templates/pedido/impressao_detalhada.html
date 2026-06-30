@@ -1,0 +1,149 @@
+{% load mathfilters %}
+{% load pedido_extras %}
+{% load humanize %}
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedido Interno de Matéria Prima - Detalhado</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 8mm; color: #333; font-size: 7.5pt; line-height: 1.25; }
+        .page-container { width: 100%; margin: 0 auto; }
+        h1.main-title { text-align: center; color: #2c3e50; font-size: 14pt; margin-bottom: 12px; font-weight: 600; }
+        
+        h2.artigo-group-header { font-size: 11pt; background-color: #0e93ec; color: #fbfcf0; padding: 6px 10px; margin-top: 15px; margin-bottom: 8px; text-align: center; border-radius: 3px; font-weight: 600; page-break-after: avoid; }
+        h3.cliente-group-header { font-size: 9pt; background-color: #c8eaff; color: #212f3c; padding: 4px 8px; margin-top: 8px; margin-bottom: 5px; text-align: left; border-radius: 2px; font-weight: 500; border-left: 3px solid #5dade2; page-break-after: avoid; }
+        
+        .pedido-card { border: 1px solid #AEB6BF; border-radius: 4px; margin-bottom: 10px; padding: 0; background-color: #fdfefe; page-break-inside: avoid; }
+
+        table.pedido-info-layout { width: 100%; border-collapse: collapse; font-size: 7pt; }
+        table.pedido-info-layout th { font-weight: 600; color: #566573; background-color: #f2f2f2; }
+        table.pedido-info-layout th, table.pedido-info-layout td { padding: 4px 6px; vertical-align: middle; border-bottom: 1px dotted #ccc; text-align: center; }
+        table.pedido-info-layout td.align-left { text-align: left; }
+        table.pedido-info-layout thead { display: table-header-group; } /* Repete o cabeçalho na impressão */
+
+        .quantidade-pedido { font-weight: bold; color: #2973b7; font-size: 1.1em;}
+        .quantidade-producao { font-weight: bold; color: #27ae60; font-size: 1.1em;}
+        
+        .status-prazo { font-weight: bold; display: block; }
+        .status-prazo.atrasado { color: #c0392b; }
+        .status-prazo.hoje { color: #d35400; }
+        .status-prazo.adiantado { color: #229954; }
+        .status-prazo.entregue { color: #1a5276; }
+
+        .total-geral-artigo { border-top: 2px solid #34495e; margin-top: 10px; padding-top: 8px; text-align: center; font-size: 10pt; font-weight: bold; }
+        .resumo-mensal-artigo { border: 1px solid #e0e0e0; background-color: #f7f9fa; padding: 5px 10px; margin-top: 8px; border-radius: 4px; }
+        .resumo-mensal-artigo h4 { margin: 0 0 5px 0; font-size: 8pt; color: #34495e; }
+        .resumo-mensal-artigo p { margin: 2px 0; font-size: 7.5pt; }
+        .info-footer { margin-top: 25px; font-size: 7pt; color: #777; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }
+        .navigation-buttons { text-align: right; }
+        .navigation-buttons button { background-color: #3498DB; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 8pt; margin-left: 8px; }
+
+        @media print {
+            body { margin: 6mm; font-size: 7pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .navigation-buttons { display: none; }
+            h1.main-title { font-size: 12pt; }
+            h2.artigo-group-header { background-color: #e0e0e0 !important; color: #000 !important; }
+            h3.cliente-group-header { background-color: #f0f0f0 !important; color: #000 !important; }
+        }
+    </style>
+</head>
+<body>
+<div class="page-container">
+    <div class="navigation-buttons">
+        <button onclick="window.history.back()">Voltar</button>
+        <button onclick="window.print()">Imprimir</button>
+    </div>
+
+    <h1 class="main-title">RELATÓRIO DETALHADO DE PEDIDOS</h1>
+
+    {% for grupo_artigo, clientes_e_pedidos in pedidos_agrupados_por_artigo_e_cliente.items %}
+    <div class="artigo-group-container">
+        
+        <h2 class="artigo-group-header">{{ grupo_artigo }}</h2>
+        
+        {% for cliente_nome, pedidos_do_cliente in clientes_e_pedidos.items %}
+            <h3 class="cliente-group-header">{{ cliente_nome }}</h3>
+            <div class="pedido-card">
+                <table class="pedido-info-layout">  
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">Contrato</th>
+                            <th style="width: 25%;">Artigo Original</th>
+                            <th style="width: 10%;">Qt. Pedido</th>
+                            <th style="width: 10%;">Qt. Produção</th>
+                            <th style="width: 10%;">Classe</th>
+                            <th style="width: 15%;">Status Processo</th>
+                            <th style="width: 15%;">Prazo Final</th>
+                        </tr>
+                    </thead>  
+                    <tbody>
+                    {% for item in pedidos_do_cliente %}
+                        <tr> 
+                            <td>{{ item.nr_contract|default:"-" }}</td>
+                            <td class="align-left">{{ item.artigo|default:"" }}</td>
+                            <td><span class="quantidade-pedido">{{ item.quantidade|format_br }} ({{ item.unidade_medida }})</span></td>
+                            <td><span class="quantidade-producao">{{ item.requisicao_links.all|soma_qt_mt|format_br }} (m²)</span></td>
+                            <td>{{ item.selecao|default:"-" }}</td>
+                            <td class="align-left">
+                                {% for processo in item.processos_consolidados_requisitantes %}
+                                    {{ processo.processo }} ({{ processo.dt_processo|date:"d/m" }})<br>
+                                {% empty %}
+                                    <span>-</span>
+                                {% endfor %}
+                            </td>
+                            <td>
+                                {% if item.dt_programada %}
+                                    {{ item.dt_programada|date:"d/m/Y" }}
+                                    {% with dias_diferenca=item.dt_programada|dias_ate_ou_desde:data_atual %}
+                                        {% if item.fechado and item.quantidade_entregue >= item.quantidade %}
+                                            <span class="status-prazo entregue">Entregue</span>
+                                        {% else %}
+                                            {% if dias_diferenca < 0 %} <span class="status-prazo atrasado">ATRASADO {{ dias_diferenca|abs }}d</span>
+                                            {% elif dias_diferenca == 0 %} <span class="status-prazo hoje">HOJE</span>
+                                            {% elif dias_diferenca > 0 %} <span class="status-prazo adiantado">Faltam {{ dias_diferenca }}d</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endwith %}
+                                {% else %}
+                                <span>-</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endfor %}
+    
+        {% with totais=totais_por_artigo|get_item:grupo_artigo %}
+            {% if totais %}
+            <div class="total-geral-artigo">
+                Total para {{ grupo_artigo }}: 
+                <span class="quantidade-pedido">{{ totais.total_qt|format_br }} (m²)</span> pedido &nbsp;|&nbsp;
+                <span class="quantidade-producao">{{ totais.total_prod|format_br }} (m²)</span> produção
+            </div>
+            {% endif %}
+        {% endwith %}
+
+        {% with totais_mensais=totais_artigo_por_mes|get_item:grupo_artigo %}
+            {% if totais_mensais %}
+            <div class="resumo-mensal-artigo">
+                <h4>Resumo Mensal de Pedidos ({{ grupo_artigo }})</h4>
+                {% for mes, total_qt in totais_mensais.items %}
+                    <p><strong>{{ mes }}:</strong> {{ total_qt|format_br }} (m²)</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% endwith %}
+         
+    </div>
+    {% endfor %}
+</div>
+<div class="info-footer">
+    <p>Relatório gerado em {{ data_atual|date:"d/m/Y" }} às {{ data_atual|date:"H:i" }}</p>
+</div>
+</body>
+</html>

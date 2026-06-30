@@ -1,0 +1,25 @@
+/* Força 2 campos por linha com mesmo tamanho */
+.form-row {
+    display: flex;
+    gap: 20px;
+}
+
+.form-row > div {
+    flex: 1;
+}
+
+/* Ajusta largura dos inputs */
+.form-row input,
+.form-row select,
+.form-row textarea {
+    width: 100% !important;
+}
+fieldset.module {
+    border-radius: 8px;
+    padding: 20px;
+}
+
+fieldset.module h2 {
+    font-size: 16px;
+    font-weight: bold;
+}

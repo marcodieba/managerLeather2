@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Embarques - Logística</title>
+  <style>
+    :root {
+      --bg-body: #f3f4f6;
+      --bg-card: #ffffff;
+      --bg-header: #111827;
+      --bg-header-soft: #1f2937;
+      --border-soft: #e5e7eb;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+      --danger: #dc2626;
+      --success: #16a34a;
+      --text-main: #111827;
+      --text-soft: #6b7280;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: var(--bg-body);
+      color: var(--text-main);
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 20px 32px;
+    }
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .page-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .page-title span.icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .page-subtitle {
+      font-size: 12px;
+      color: var(--text-soft);
+    }
+
+    .filters-card {
+      background: var(--bg-card);
+      border-radius: 10px;
+      border: 1px solid var(--border-soft);
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      align-items: center;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    }
+
+    .filters-card label {
+      font-size: 12px;
+      color: var(--text-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .filters-card input[type="date"],
+    .filters-card select {
+      font-size: 12px;
+      padding: 3px 6px;
+      border-radius: 6px;
+      border: 1px solid var(--border-soft);
+      min-width: 140px;
+    }
+
+    .filters-card button {
+      padding: 5px 12px;
+      font-size: 12px;
+      border-radius: 999px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .filters-card button:hover {
+      background: #1d4ed8;
+    }
+
+    .filters-card button span.icon {
+      font-size: 13px;
+    }
+
+    .table-wrapper {
+      background: var(--bg-card);
+      border-radius: 12px;
+      border: 1px solid var(--border-soft);
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead {
+      background: var(--bg-header);
+      color: #e5e7eb;
+    }
+
+    th, td {
+      padding: 8px 10px;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      font-weight: 500;
+      font-size: 12px;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #f9fafb;
+    }
+
+    tbody tr.main-row:hover {
+      background: #eff6ff;
+    }
+
+    td:first-child, th:first-child {
+      padding-left: 14px;
+    }
+
+    td:last-child, th:last-child {
+      padding-right: 14px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .status-pill.open {
+      background: #fee2e2;
+      color: var(--danger);
+    }
+
+    .status-pill.closed {
+      background: #dcfce7;
+      color: var(--success);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .actions a {
+      font-size: 11px;
+      color: var(--accent);
+      text-decoration: none;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+    }
+
+    .actions a:hover {
+      background: #bfdbfe;
+    }
+
+    /* collapse */
+    .collapse-toggle {
+      cursor: pointer;
+      border: none;
+      background: none;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--accent);
+    }
+
+    .collapse-toggle span.chevron {
+      display: inline-block;
+      transition: transform 0.18s ease;
+      font-size: 11px;
+    }
+
+    .collapse-toggle.open span.chevron {
+      transform: rotate(90deg);
+    }
+
+    .collapse-row {
+      display: none;
+      background: #f9fafb;
+    }
+
+    .collapse-content {
+      padding: 10px 8px 10px 38px;
+      border-top: 1px dashed #e5e7eb;
+    }
+
+    .mini-section {
+      margin-bottom: 8px;
+    }
+
+    .mini-header {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-soft);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .mini-header span.dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      background: #fff;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+    }
+
+    .mini-table th, .mini-table td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 3px 6px;
+      white-space: nowrap;
+    }
+
+    .mini-table thead {
+      background: #f3f4f6;
+    }
+
+    .empty-row {
+      font-size: 12px;
+      color: var(--text-soft);
+      padding: 6px 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">
+          <span class="icon">🚚</span>
+          <span>Embarques</span>
+        </div>
+        <div class="page-subtitle">
+          Visualize, por data e caminhão, os pedidos previstos e o que já foi efetivamente embarcado.
+        </div>
+      </div>
+    </div>
+
+    <form method="get" class="filters-card">
+      <label>
+        De
+        <input type="date" name="dt_ini" value="{{ request.GET.dt_ini }}">
+      </label>
+      <label>
+        Até
+        <input type="date" name="dt_fim" value="{{ request.GET.dt_fim }}">
+      </label>
+      <label>
+        Finalizado
+        <select name="finalizado">
+          <option value="">Todos</option>
+          <option value="1" {% if request.GET.finalizado == "1" %}selected{% endif %}>Sim</option>
+          <option value="0" {% if request.GET.finalizado == "0" %}selected{% endif %}>Não</option>
+        </select>
+      </label>
+      <button type="submit">
+        <span class="icon">🔍</span>
+        <span>Filtrar</span>
+      </button>
+    </form>
+
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>ID</th>
+            <th>Data</th>
+            <th>Placa / Tipo</th>
+            <th>Transportadora</th>
+            <th>Total m²</th>
+            <th>% Ocup.</th>
+            <th>Status</th>
+            <th style="text-align:right;">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in embarques %}
+          <!-- linha principal -->
+          <tr class="main-row">
+            <td>
+              <button type="button"
+                      class="collapse-toggle"
+                      data-target="#emb-collapse-{{ e.id }}">
+                <span class="chevron">▶</span>
+                <span>ver pedidos</span>
+              </button>
+            </td>
+            <td>#{{ e.id }}</td>
+            <td>{{ e.data_embarque|date:"d/m/Y" }}</td>
+            <td>
+              {{ e.veiculo.placa }}
+              <span class="badge">{{ e.veiculo.tipo.nome }}</span>
+            </td>
+            <td>{{ e.veiculo.transportadora.nome }}</td>
+            <td>{{ e.total_m2|default:0|floatformat:2 }}</td>
+            <td>{{ e.percentual_ocupacao|default:0|floatformat:1 }}%</td>
+            <td>
+              {% if e.finalizado %}
+                <span class="status-pill closed">Finalizado</span>
+              {% else %}
+                <span class="status-pill open">Aberto</span>
+              {% endif %}
+            </td>
+            <td style="text-align:right;">
+              <div class="actions">
+                <a href="{% url 'embarque_detail' e.id %}" target="_blank">Detalhes</a>
+                <a href="{% url 'embarque_print' e.id %}" target="_blank">Imprimir</a>
+              </div>
+            </td>
+          </tr>
+
+          <!-- linha colapsável com pedidos da data/caminhão -->
+          <tr id="emb-collapse-{{ e.id }}" class="collapse-row">
+            <td colspan="9">
+              <div class="collapse-content">
+                <div class="mini-section">
+                  <div class="mini-header">
+                    <span class="dot"></span>
+                    <span>Pedidos previstos para este embarque</span>
+                  </div>
+                  <table class="mini-table">
+                    <thead>
+                      <tr>
+                        <th>nr_contract</th>
+                        <th>nr_pedido_interno</th>
+                        <th>Cliente</th>
+                        <th>M² prevista</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for r in e.reservas.all %}
+                      <tr>
+                        <td>{{ r.pedido.nr_contract }}</td>
+                        <td>{{ r.pedido.nr_pedido_interno }}</td>
+                        <td>{{ r.pedido.cliente }}</td>
+                        <td>{{ r.metragem_prevista_m2|floatformat:3 }}</td>
+                      </tr>
+                      {% empty %}
+                      <tr>
+                        <td colspan="4" class="empty-row">Nenhuma previsão cadastrada para este embarque.</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="mini-section">
+                  <div class="mini-header">
+                    <span class="dot"></span>
+                    <span>Itens embarcados (pallets / romaneio)</span>
+                  </div>
+                  <table class="mini-table">
+                    <thead>
+                      <tr>
+                        <th>nr_pedido_interno</th>
+                        <th>Cliente</th>
+                        <th>M² embarcada</th>
+                        <th>Romaneio</th>
+                        <th>Pallet</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for it in e.itens_embarcados.all %}
+                      <tr>
+                        <td>{{ it.pedido.nr_pedido_interno }}</td>
+                        <td>{{ it.pedido.cliente }}</td>
+                        <td>{{ it.metragem_embarcada|floatformat:3 }}</td>
+                        <td>{{ it.cd_romaneio_faturamento }}</td>
+                        <td>{{ it.pallet }}</td>
+                      </tr>
+                      {% empty %}
+                      <tr>
+                        <td colspan="5" class="empty-row">Nenhum pallet embarcado ainda.</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="9" class="empty-row">Nenhum embarque encontrado para os filtros informados.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest(".collapse-toggle")) return;
+      const btn = e.target.closest(".collapse-toggle");
+      const targetSelector = btn.getAttribute("data-target");
+      if (!targetSelector) return;
+      const row = document.querySelector(targetSelector);
+      if (!row) return;
+      const isOpen = row.style.display === "table-row";
+      row.style.display = isOpen ? "none" : "table-row";
+      btn.classList.toggle("open", !isOpen);
+    });
+  </script>
+</body>
+</html>

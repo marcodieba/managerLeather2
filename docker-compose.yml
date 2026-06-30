@@ -1,0 +1,44 @@
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - "7379:7379"
+    volumes:
+      - redis_data:/data
+    restart: always
+
+  web:
+    build: .
+    image: my_django_app:latest
+    env_file:
+      - ./docker.env
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - ./src:/srv:delegated
+      - ./staticfiles:/srv/staticfiles
+      - ./media:/srv/media
+    depends_on:
+      - redis
+    restart: always
+
+  nginx:
+    image: nginx:latest
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./nginx/logs:/var/log/nginx
+      - ./staticfiles:/srv/staticfiles
+      - ./media:/srv/media
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web
+    restart: always
+
+volumes:
+  redis_data:

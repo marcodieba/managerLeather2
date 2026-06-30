@@ -1,0 +1,23 @@
+/* static/admin/css/custom_admin.css */
+fieldset .form-row > div {
+    margin-right: 20px;
+    min-width: 200px;
+}
+
+/* Transforma o dropdown de ações em botões (opcional) */
+#changelist-form select[name="action"] {
+    display: inline-block;
+    width: auto;
+    margin-right: 10px;
+}
+
+#changelist-form button[name="index"] {
+    background-color: #2e8b57;
+    color: white;
+    padding: 5px 15px;
+    border: none;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+}
+

@@ -1,0 +1,143 @@
+{% load mathfilters %}
+{% load filter %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fórmula - Custo Requisição</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      margin: 20px;
+      color: #333;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9em;
+      margin-bottom: 20px;
+    }
+
+    thead th {
+      background-color: #e3f2fd;
+      padding: 10px;
+      border: 1px solid #ccc;
+      text-align: center;
+    }
+
+    thead th[colspan] {
+      background-color: #bbdefb;
+      font-size: 1.1em;
+    }
+
+    tbody td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+    }
+
+    tbody tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+
+    .button-container {
+      margin-top: 20px;
+    }
+
+    .button {
+      background-color: #2196f3;
+      color: #fff;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      text-decoration: none;
+      cursor: pointer;
+      font-size: 1em;
+      margin-right: 10px;
+    }
+
+    .button:hover {
+      background-color: #1976d2;
+    }
+
+    @media print {
+      @page {
+        /* size: A4 landscape; */
+        margin: 10mm;
+      }
+
+      body {
+        margin: 0;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .button-container {
+        display: none;
+      }
+
+      table {
+        font-size: 0.8em;
+      }
+
+      th, td {
+        padding: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <table>
+    <thead>
+      <tr>
+        <th colspan="5">Fórmulas Dia Custo</th>
+        <th>DATA PROCESSO:</th>
+        {% for obj_topo in objetos %}
+          {% if forloop.first %}
+            <th>{{ obj_topo.dt_requisicao }}</th>
+          {% endif %}
+        {% endfor %}
+        <th></th>
+      </tr>
+      <tr>
+        <th>FULÕES</th>
+        <th>ARTIGOS</th>
+        <th>R$/KG</th>
+        <th>R$/KG EXTRA</th>
+        <th>TOTAL</th>
+        <th>RENDIMENTO</th>
+        <th>CUSTO M²</th>
+        <th>CAUSAS / CORREÇÕES</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in objetos %}
+        {% with total_extra=item.custos.all|soma_extras %}
+          {% with total=item.custo_requisicao|add:total_extra %}
+            <tr>
+              <td>{{ item.fulao }}</td>
+              <td>{{ item.artigo }}</td>
+              <td>R$ {{ item.custo_requisicao_inicial|floatformat:2 }}</td>
+              <td>R$ {{ total_extra|floatformat:2 }}</td>
+              <td>R$ {{ item.custo_requisicao }}</td>
+              <td>{{ item.rendimento_custo|floatformat:2 }}</td>
+              <td>R$ {{ item.custo_requisicao|mul:item.rendimento_custo|floatformat:2 }}</td>
+              <td>{% if item.causa_correcao %}
+                    {{ item.causa_correcao }}
+                  {% endif %}
+              </td>
+            </tr>
+          {% endwith %}
+        {% endwith %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="button-container">
+    <button class="button" onclick="window.print()">Imprimir</button>
+    <a href="/admin/fluxo/requisicao/" class="button">Voltar</a>
+  </div>
+</body>
+</html>

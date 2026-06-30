@@ -1,0 +1,470 @@
+{% load mathfilters %}
+{% load pedido_extras %}
+{% load humanize %}
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedido Interno de Matéria Prima - Detalhado</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #0e93ec;
+            --primary-dark: #0b76be;
+            --secondary-color: #c8eaff;
+            --text-main: #2c3e50;
+            --text-muted: #566573;
+            --bg-body: #f4f7f6;
+            --bg-card: #ffffff;
+            --border-color: #e0e6ed;
+            --success: #27ae60;
+            --warning: #f39c12;
+            --danger: #c0392b;
+            --info: #3498db;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        .page-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Botões de Navegação */
+        .navigation-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-bottom: 20px;
+            position: sticky;
+            top: 10px;
+            z-index: 100;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .btn-primary { background-color: var(--primary-color); color: white; }
+        .btn-primary:hover { background-color: var(--primary-dark); transform: translateY(-1px); }
+        .btn-secondary { background-color: #fff; color: var(--text-main); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background-color: #f8f9fa; }
+
+        /* Títulos */
+        h1.main-title {
+            text-align: center;
+            font-size: 24px;
+            margin-bottom: 30px;
+            font-weight: 700;
+            color: var(--text-main);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .artigo-group-header {
+            font-size: 18px;
+            background-color: var(--primary-color);
+            color: white;
+            padding: 12px 20px;
+            margin: 40px 0 15px 0;
+            border-radius: 8px;
+            font-weight: 700;
+            box-shadow: 0 4px 6px rgba(14, 147, 236, 0.2);
+        }
+
+        .cliente-group-header {
+            font-size: 15px;
+            background-color: var(--secondary-color);
+            color: #1a5276;
+            padding: 10px 15px;
+            margin: 20px 0 10px 0;
+            border-radius: 6px;
+            font-weight: 600;
+            border-left: 5px solid var(--primary-color);
+        }
+
+        /* Card e Tabela Responsiva */
+        .pedido-card {
+            background-color: var(--bg-card);
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+            overflow: hidden; /* Garante que a borda arredondada funcione com a tabela */
+            border: 1px solid var(--border-color);
+        }
+
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        table.pedido-info-layout {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        table.pedido-info-layout th {
+            background-color: #f8f9fa;
+            padding: 12px 15px;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: 700;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        table.pedido-info-layout td {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+
+        table.pedido-info-layout tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Estilos de Conteúdo */
+        .info-block {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .label-mobile {
+            display: none; /* Escondido no desktop */
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+
+        .quantidade-pedido { font-weight: 700; color: var(--primary-color); font-size: 1.1em; }
+        
+        .status-prazo {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        .status-prazo.atrasado { background-color: #fdeaea; color: var(--danger); }
+        .status-prazo.hoje { background-color: #fff4e5; color: var(--warning); }
+        .status-prazo.adiantado { background-color: #eafaf1; color: var(--success); }
+        .status-prazo.entregue { background-color: #ebf5fb; color: var(--info); }
+
+        /* Blocos de Resumo */
+        .resumo-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .total-geral-artigo, .resumo-mensal-artigo {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .total-geral-artigo {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .resumo-mensal-artigo h4 {
+            margin: 0 0 15px 0;
+            color: var(--text-main);
+            border-bottom: 2px solid var(--secondary-color);
+            padding-bottom: 8px;
+        }
+
+        .resumo-mensal-artigo p {
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* --- RESPONSIVIDADE (MOBILE) --- */
+        @media screen and (max-width: 768px) {
+            body { padding: 10px; font-size: 13px; }
+            
+            .navigation-buttons { position: static; margin-bottom: 15px; }
+
+            /* Transformar tabela em cards no mobile */
+            table.pedido-info-layout thead { display: none; }
+            
+            table.pedido-info-layout tr {
+                display: block;
+                padding: 15px;
+                border-bottom: 8px solid var(--bg-body);
+            }
+
+            table.pedido-info-layout td {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px 0;
+                border-bottom: 1px solid #f0f0f0;
+                text-align: right;
+                width: 100% !important; /* Sobrescreve larguras fixas */
+            }
+
+            table.pedido-info-layout td:last-child { border-bottom: none; }
+
+            .label-mobile { display: block; }
+            
+            .info-block { align-items: flex-end; text-align: right; }
+        }
+
+        /* --- LAYOUT DE IMPRESSÃO --- */
+        @media print {
+            @page { margin: 10mm; }
+            
+            body {
+                background-color: white;
+                padding: 0;
+                font-size: 8pt;
+                color: black;
+            }
+
+            .page-container { max-width: 100%; }
+            .navigation-buttons { display: none; }
+
+            h1.main-title { font-size: 14pt; margin-bottom: 15px; }
+
+            .artigo-group-header {
+                font-size: 11pt;
+                padding: 5px 10px;
+                margin: 15px 0 8px 0;
+                background-color: #eee !important;
+                color: black !important;
+                border: 1px solid #ccc;
+                box-shadow: none;
+            }
+
+            .cliente-group-header {
+                font-size: 9pt;
+                padding: 4px 8px;
+                background-color: #f9f9f9 !important;
+                border-left: 3px solid #333;
+                color: black !important;
+            }
+
+            .pedido-card {
+                box-shadow: none;
+                border: 1px solid #ccc;
+                page-break-inside: avoid;
+                margin-bottom: 10px;
+            }
+
+            table.pedido-info-layout th {
+                background-color: #f0f0f0 !important;
+                padding: 5px;
+                border-bottom: 1px solid #333;
+                font-size: 7pt;
+            }
+
+            table.pedido-info-layout td {
+                padding: 4px 5px;
+                font-size: 7.5pt;
+                border-bottom: 0.5pt solid #eee;
+            }
+
+            .status-prazo {
+                padding: 0;
+                background: none !important;
+                color: black !important;
+                font-size: 7pt;
+                text-decoration: underline;
+            }
+
+            .resumo-container { display: block; }
+            .total-geral-artigo, .resumo-mensal-artigo {
+                box-shadow: none;
+                border: 1px solid #eee;
+                margin-top: 10px;
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page-container">
+    <div class="navigation-buttons">
+        <button class="btn btn-secondary" onclick="window.history.back()">
+            <span>←</span> Voltar
+        </button>
+        <button class="btn btn-primary" onclick="window.print()">
+            <span>⎙</span> Imprimir Pedido
+        </button>
+    </div>
+
+    <h1 class="main-title">Pedido Interno de Matéria Prima</h1>
+
+    {% for grupo_artigo, clientes_e_pedidos in pedidos_agrupados_por_artigo_e_cliente.items %}
+        <div class="artigo-group-container">
+            <h2 class="artigo-group-header">{{ grupo_artigo|default:"NÃO ESPECIFICADO" }}</h2>
+            
+            {% for cliente_nome, pedidos_do_cliente in clientes_e_pedidos.items %}
+                <h3 class="cliente-group-header">Cliente: {{ cliente_nome|default:"NÃO ESPECIFICADO" }}</h3>
+                
+                <div class="pedido-card">
+                    <div class="table-responsive">
+                        <table class="pedido-info-layout">  
+                            <thead>
+                                <tr>
+                                    <th>Pedido Contrato</th>
+                                    <th>Artigo Original</th>
+                                    <th>Qt. Pedido</th>
+                                    <th>Qt. Produção</th>
+                                    <th>Classe</th>
+                                    <th>Status Processo(s)</th>
+                                    <th>Prazo</th>
+                                </tr>
+                            </thead>  
+                            <tbody>
+                            {% for item in pedidos_do_cliente %}
+                                <tr> 
+                                    <td>
+                                        <span class="label-mobile">Pedido</span>
+                                        <div class="info-block">
+                                            <strong>{{ item.nr_contract|default:"-" }}</strong>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="label-mobile">Artigo</span>
+                                        <div class="info-block">
+                                             {{ item.artigo|default:"" }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="label-mobile">Qt. Pedido</span>
+                                        <div class="info-block">
+                                            <span class="quantidade-pedido">{{ item.quantidade|default:0|floatformat:2 }}</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="label-mobile">Qt. Produção</span>
+                                        <div class="info-block">
+                                            {{ item.requisicao.all|soma_qt_mt }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="label-mobile">Classe</span>
+                                        <div class="info-block">
+                                            {{ item.selecao|default:"-" }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="label-mobile">Status</span>
+                                        <div class="info-block">
+                                            {% if item.processos_consolidados_requisitantes %}
+                                                {% for processo_nome in item.processos_consolidados_requisitantes %}
+                                                    <span style="font-weight:600; color: var(--info);">{{ processo_nome.processo }}</span>
+                                                    <small>
+                                                    {% with dias_diferenca=processo_nome.dt_processo|dias_ate_ou_desde:data_atual %}
+                                                        ({{ dias_diferenca|abs }} dias)
+                                                    {% endwith %}
+                                                    </small>
+                                                    {% if not forloop.last %}<br>{% endif %}
+                                                {% endfor %}
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="label-mobile">Prazo</span>
+                                        <div class="info-block">
+                                            {% if item.dt_programada %}
+                                                <span style="font-size: 0.9em; margin-bottom: 4px;">{{ item.dt_programada|date:"d/m/y" }}</span>
+                                                {% with dias_diferenca=item.dt_programada|dias_ate_ou_desde:data_atual %}
+                                                    {% if item.fechado and item.quantidade_entregue >= item.quantidade %}
+                                                        <span class="status-prazo entregue">Entregue</span>
+                                                    {% else %}
+                                                        {% if dias_diferenca < 0 %} 
+                                                            <span class="status-prazo atrasado">Atrasado {{ dias_diferenca|abs }}d</span>
+                                                        {% elif dias_diferenca == 0 %} 
+                                                            <span class="status-prazo hoje">Hoje</span>
+                                                        {% elif dias_diferenca > 0 %} 
+                                                            <span class="status-prazo adiantado">Faltam {{ dias_diferenca }}d</span>
+                                                        {% endif %}
+                                                    {% endif %}
+                                                {% endwith %}
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            {% endfor %}
+
+            <div class="resumo-container">
+                <!-- Total Geral por Artigo -->
+                {% with totais=totais_por_artigo|get_item:grupo_artigo %}
+                <div class="total-geral-artigo">
+                    <div style="color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Resumo Total: {{ grupo_artigo }}</div>
+                    <div>
+                        <span style="color: var(--primary-color);">{{ totais.total_qt|default:0|floatformat:2|intcomma }} m²</span> <small>Pedido</small>
+                        <span style="margin: 0 10px; color: var(--border-color);">|</span>
+                        <span style="color: var(--success);">{{ totais.total_prod|default:0|floatformat:2|intcomma }} m²</span> <small>Produção</small>
+                    </div>
+                </div>
+                {% endwith %}
+
+                <!-- Resumo mensal para este artigo -->
+                {% with totais_mensais=totais_artigo_por_mes|get_item:grupo_artigo %}
+                    {% if totais_mensais %}
+                    <div class="resumo-mensal-artigo">
+                        <h4>Previsão Mensal</h4>
+                        {% for mes, total_qt in totais_mensais.items %}
+                            <p><strong>{{ mes }}</strong> <span>{{ total_qt|floatformat:2|intcomma }} m²</span></p>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                {% endwith %}
+            </div>
+        </div>
+    {% endfor %}
+</div>
+</body>
+</html>

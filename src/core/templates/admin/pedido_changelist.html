@@ -1,0 +1,57 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+{% load i18n %}
+
+{% block object-tools %}
+    {{ block.super }}
+    <form id="action-form" method="post" action="" style="margin-top: 10px;">
+        {% csrf_token %}
+        <input type="hidden" name="action" id="action-field">
+        <input type="hidden" name="select_across" value="0">
+        {% for obj in cl.result_list %}
+            <input type="checkbox" class="action-checkbox" name="_selected_action" value="{{ obj.pk }}" style="display:none;">
+        {% endfor %}
+        <div style="margin-bottom: 15px;">
+            <a class="button btn btn-warning" href="{% url 'ordem_servico_page' %}" class="addlink">
+                {% trans 'Cálculo de OS' %}
+            </a>
+            
+            <a href="/admin/fluxo/requisicao/executar-selectrequisicao/" class="button btn btn-success">
+                🔄 Atualizar Requisições
+            </a>
+            
+            <a href="{% url 'resumo_lotes' %}" target="_blank" class="button" style="background-color: #007BFF; color: white; margin-right: 5px;">
+                📊 Resumo de Lotes Ativos
+            </a>
+            
+            <button type="submit" onclick="setActionAndSubmit('imprimir_fluxograma')" class="button btn btn-secondary">🖨️ Fluxograma</button>
+            <button type="submit" onclick="setActionAndSubmit('imprimir_fluxo_detalhado')" class="button btn btn-secondary">🖨️ Fluxo Detalhado</button>
+        </div>
+    </form>
+{% endblock %}
+
+{% block content_title %}
+    {{ block.super }}
+    <div style="margin-top: 15px; margin-bottom: 15px;">
+        
+    </div>
+{% endblock %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script>
+        function setActionAndSubmit(actionName) {
+            // Preenche os checkboxes ocultos com os que estão marcados no form principal
+            let checkboxes = document.querySelectorAll('input[name="_selected_action"]:not([type="hidden"])');
+            let selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+
+            // Copia os valores para os checkboxes do formulário customizado
+            document.querySelectorAll('#action-form input.action-checkbox').forEach(cb => {
+                cb.checked = selected.includes(cb.value);
+            });
+
+            // Define qual ação será executada
+            document.getElementById("action-field").value = actionName;
+        }
+    </script>
+{% endblock %}

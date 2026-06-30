@@ -1,0 +1,224 @@
+{% load mathfilters %}
+{% load pedido_extras %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedido Interno de Matéria Prima</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h2 { text-align: center; margin-bottom: 20px; }
+        .navigation-buttons { margin-bottom: 20px; }
+        .navigation-buttons button, .navigation-buttons a {
+            background-color: #007bff; color: white;
+            padding: 10px 15px; border: none; border-radius: 5px;
+            cursor: pointer; font-size: 1em; margin-bottom: 20px;
+            text-decoration: none; display: inline-block;
+        }
+        .navigation-buttons button:hover, .navigation-buttons a:hover {
+            background-color: #0056b3;
+        }
+        .status-prazo { font-size:8px;font-weight: bold; display: block; }
+        .status-prazo.atrasado { color: #c0392b; font-size: 8px;}
+        .status-prazo.hoje { font-size:8px; color: #d35400; }
+        .status-prazo.adiantado { font-size:8px; color: #229954; }
+        .status-prazo.entregue { font-size:8px; color: #1a5276; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+            font-size: 0.7em;
+            border-right: 1px solid #ddd;
+        }
+        th { background-color: #f2f2f2; font-weight: bold; color: #333; }
+        th:last-child, td:last-child { border-right: none; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        tr:hover { background-color: #e0e0e0; }
+
+        .subtotal-cliente-row {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            border-top: 1px solid #ccc;
+        }
+        .subtotal-cliente-row td {
+            font-size: 0.75em;
+            padding: 6px 10px;
+        }
+        .subtotal-cliente-row .total-label-cell {
+            text-align: right;
+            color: #2c3e50;
+        }
+
+        .subtotal-row { background-color: #f2f2f2; font-weight: bold; }
+        .subtotal-row.first { border-top: 2px solid #ccc; }
+        .grand-total-row {
+            background-color: #eaf2f8;
+            color: #1a5276;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        .grand-total-row.first { border-top: 3px double #333; }
+        .total-label-cell { text-align: right; padding-right: 15px; }
+
+        @media print {
+            @page { margin: 10mm; }
+            body {
+                margin: 0;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .navigation-buttons { display: none; }
+            table { font-size: 0.7em; border-color: #000; }
+            th, td { padding: 6px; border-color: #000; }
+        }
+    </style>
+</head>
+<body>
+
+<h2>PEDIDO INTERNO</h2>
+<h3>Data: {{ data_atual|date:"d/m/Y" }}</h3>
+
+<div class="navigation-buttons">
+    <button onclick="window.history.back()">Voltar</button>
+    <button onclick="window.print()">Imprimir</button>
+    <a href="?{{ request.GET.urlencode }}&formato=excel" style="background-color: #28a745;">
+        Exportar para Excel
+    </a>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>NR.CONTRACT</th>
+            <th>CODIGO INTERNO</th>
+            <th>CLIENTE</th>
+            <th>ARTIGO</th>
+            <th>QT.<br>PEDIDO</th>
+            <!-- <th>PREVISÃO<br>INÍCIO</th> -->
+            <th>DATA EMB.</th>
+            <th>DATA ENT.</th>
+            <th>Observações</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for grupo in pedidos_agrupados.values %}
+            {% for item in grupo.items %}
+                <tr>
+                    <td style="width: 5%;">{{ item.nr_contract }}</td>
+                    <td style="width: 10%;">{{ item.nr_pedido_interno }}</td>
+                    <td style="width: 15%;">{{ item.cliente }}</td>
+                    <td style="width: 20%;">{{ item.artigo }}</td>
+                    <td style="width: 10%;">
+                        {{ item.quantidade|format_br }} ({{ item.unidade_medida|default:"N/D" }})
+                    </td>
+                    <!-- <td style="width: 11%;">
+                        {% if item.previsao_inicio %}
+                            {{ item.previsao_inicio|date:"d/m/y" }}
+                        {% endif %}
+                    </td> -->
+                    <td>
+                        ({{ item.dt_programada|date:"d/m/y" }})
+                        <span class="status-prazo {{ item.status_prazo_classe }}">
+                            {{ item.status_prazo_texto }}
+                        </span>
+                    </td>
+                    <td>
+
+                    </td>
+
+                    <td>{% if item.obs %}{{ item.obs }}{% endif %}</td>
+                </tr>
+            {% endfor %}
+
+            {% if grupo.clientes %}
+                {% for cliente, unidades in grupo.clientes.items %}
+                    <tr class="subtotal-cliente-row">
+                        <td colspan="4" class="total-label-cell">
+                            <strong>Subtotal - {{ cliente }}:</strong>
+                        </td>
+                        <td>
+                            {% for unidade, total in unidades.items %}
+                                {{ total|format_br }} ({{ unidade }})
+                                {% if not forloop.last %}<br>{% endif %}
+                            {% endfor %}
+                        </td>
+                        <td colspan="3"></td>
+                    </tr>
+                {% endfor %}
+            {% endif %}
+
+            {% if grupo.subtotais %}
+                {% for unidade, total in grupo.subtotais.items %}
+                    <tr class="subtotal-row {% if forloop.first %}first{% endif %}">
+                        <td colspan="4" class="total-label-cell">
+                            {% if forloop.first %}
+                                Totais para {{ grupo.mes_display }}:
+                            {% endif %}
+                        </td>
+                        <td class="subtotal-valor"
+                            data-valor="{{ total }}"
+                            data-unidade="{{ unidade }}">
+                            {{ total|format_br }} ({{ unidade }})
+                        </td>
+                        <td colspan="3"></td>
+                    </tr>
+                {% endfor %}
+            {% endif %}
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const totaisGerais = {};
+    const celulasSubtotal = document.querySelectorAll('.subtotal-valor');
+
+    celulasSubtotal.forEach(function(celula) {
+        const valor = parseFloat(celula.dataset.valor);
+        const unidade = celula.dataset.unidade;
+        if (!isNaN(valor)) {
+            if (!totaisGerais[unidade]) totaisGerais[unidade] = 0;
+            totaisGerais[unidade] += valor;
+        }
+    });
+
+    const tabelaBody = document.querySelector('table tbody');
+    let isFirstTotalRow = true;
+
+    for (const unidade in totaisGerais) {
+        const total = totaisGerais[unidade];
+        const totalFormatado = total.toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+
+        const novaLinha = document.createElement('tr');
+        novaLinha.className = 'grand-total-row';
+        if (isFirstTotalRow) novaLinha.classList.add('first');
+
+        novaLinha.innerHTML = `
+            <td colspan="4" class="total-label-cell">
+                ${isFirstTotalRow ? 'TOTAL GERAL:' : ''}
+            </td>
+            <td>${totalFormatado} (${unidade})</td>
+            <td colspan="3"></td>
+        `;
+        isFirstTotalRow = false;
+        tabelaBody.appendChild(novaLinha);
+    }
+});
+</script>
+
+</body>
+</html>

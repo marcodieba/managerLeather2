@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <title>Etiquetas QRCode</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 10mm;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    .no-print {
+      margin: 10px;
+    }
+
+    /* 3 colunas x 4 linhas por página (12 etiquetas) */
+    .page {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr); /* 3 colunas */
+      grid-auto-rows: 70mm;                  /* altura de cada linha */
+      gap: 3mm;                              /* espaço entre etiquetas */
+      box-sizing: border-box;
+      page-break-after: always;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    .etiqueta {
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      padding: 2mm;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* QRCode o maior possível dentro da etiqueta */
+    .etiqueta img {
+      max-width: 100%;
+      max-height: 55mm;  /* quase toda a altura da etiqueta */
+      margin: 0 auto;
+    }
+
+    .produto-nome {
+      font-size: 8pt;
+      font-weight: bold;
+      word-wrap: break-word;
+    }
+
+    .produto-codigo {
+      font-size: 8pt;
+    }
+
+    @media print {
+      .no-print {
+        display: none;
+      }
+      body {
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print">
+    <button onclick="window.print()">Imprimir</button>
+    <span> – Layout: 3 colunas x 4 linhas por página</span>
+    <hr>
+  </div>
+
+  {% if etiquetas %}
+    <div class="page">
+      {% for e in etiquetas %}
+        <div class="etiqueta">
+          <div class="produto-nome">
+            {{ e.produto.produto }}
+          </div>
+          <div>
+            <img src="data:image/png;base64,{{ e.qr_b64 }}" alt="QR {{ e.produto.cd_produto }}">
+          </div>
+          <div class="produto-codigo">
+            Código: {{ e.produto.cd_produto }}
+          </div>
+        </div>
+
+        {# A cada 12 etiquetas, fecha a página e abre outra #}
+        {% if forloop.counter|divisibleby:12 and not forloop.last %}
+          </div>
+          <div class="page">
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+</body>
+</html>

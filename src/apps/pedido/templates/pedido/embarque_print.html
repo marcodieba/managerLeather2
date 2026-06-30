@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Imprimir Embarque {{ embarque.id }}</title>
+  <style>
+    @media print { .no-print { display:none; } }
+    body { font-family: Arial, sans-serif; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #000; padding: 6px; font-size: 10pt; }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="margin-bottom:10px;">
+    <button onclick="window.print()">Imprimir</button>
+  </div>
+
+  <h2>Embarque #{{ embarque.id }}</h2>
+  <p><b>Data:</b> {{ embarque.data_embarque|date:"d/m/Y" }}</p>
+  <p><b>Veículo:</b> {{ embarque.veiculo.placa }} - {{ embarque.veiculo.tipo.nome }}</p>
+  <p><b>Transportadora:</b> {{ embarque.veiculo.transportadora.nome }}</p>
+  <p><b>Total:</b> {{ embarque.total_m2|default:0|floatformat:2 }} m²</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Pedido</th>
+        <th>Cliente</th>
+        <th>m²</th>
+        <th>Z</th>
+        <th>X</th>
+        <th>Y</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in itens %}
+      <tr>
+        <td>{{ it.pedido.nr_pedido_interno }}</td>
+        <td>{{ it.pedido.cliente }}</td>
+        <td>{{ it.metragem_embarcada|floatformat:2 }}</td>
+        <td>{{ it.pos_z }}</td>
+        <td>{{ it.pos_x|floatformat:2 }}</td>
+        <td>{{ it.pos_y|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

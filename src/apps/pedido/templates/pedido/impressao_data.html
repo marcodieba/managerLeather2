@@ -1,0 +1,498 @@
+{% load mathfilters %}
+{% load pedido_extras %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedido Interno de Matéria Prima</title>
+    <!-- Google Fonts para Web -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* --- VARIÁVEIS --- */
+        :root {
+            --primary-color: #007bff;
+            --primary-dark: #0056b3;
+            --success-color: #28a745;
+            --text-main: #2c3e50;
+            --text-muted: #6c757d;
+            --bg-body: #f1f3f5;
+            --border-color: #dee2e6;
+            --highlight: #fff3cd;
+            --danger-color: #c0392b;
+            --warning-bg: #fff9db; /* Nova cor para saldo diferente */
+        }
+
+        /* --- ESTILOS PARA VISUALIZAÇÃO EM TELA (WEB) --- */
+        @media screen {
+            html, body {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                overflow-x: hidden;
+                background-color: var(--bg-body);
+                color: var(--text-main);
+                font-family: 'Inter', sans-serif;
+                line-height: 1.4;
+            }
+
+            .container { 
+                width: 100%;
+                max-width: 1400px; 
+                margin: 0 auto; 
+                padding: 15px;
+                box-sizing: border-box;
+            }
+
+            header { text-align: center; margin-bottom: 20px; }
+            h2 { font-size: 22px; font-weight: 700; text-transform: uppercase; margin-bottom: 5px; }
+            h3 { font-size: 15px; color: var(--text-muted); margin-top: 0; }
+
+            /* Painel de Filtros */
+            .filter-panel {
+                background: white;
+                padding: 15px;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+                margin-bottom: 20px;
+                border: 1px solid var(--border-color);
+            }
+
+            .filter-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 12px;
+            }
+
+            .filter-group { display: flex; flex-direction: column; gap: 4px; }
+            .filter-group label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
+            .filter-input { padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 13px; outline: none; width: 100%; box-sizing: border-box; }
+            .filter-input:focus { border-color: var(--primary-color); }
+            .input-logistica { background-color: var(--highlight); }
+
+            .navigation-buttons { 
+                display: flex; 
+                flex-wrap: wrap;
+                gap: 8px; 
+                margin-bottom: 20px; 
+                position: sticky; 
+                top: 0; 
+                z-index: 1000;
+                background: var(--bg-body);
+                padding: 10px 0;
+            }
+            .btn { padding: 10px 15px; border-radius: 6px; font-weight: 600; font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: none; flex: 1; min-width: 100px; }
+            .btn-primary { background-color: var(--primary-color); color: white; }
+            .btn-success { background-color: var(--success-color); color: white; }
+            .btn-back { background-color: white; color: var(--text-main); border: 1px solid var(--border-color); }
+
+            /* TABELA E SCROLL */
+            .card-table { 
+                background: white; 
+                border-radius: 8px; 
+                border: 1px solid var(--border-color); 
+                margin-bottom: 30px;
+                width: 100%;
+            }
+
+            .table-responsive {
+                width: 100%;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            table { width: 100%; border-collapse: collapse; min-width: 1000px; }
+            th { background-color: #f8f9fa; padding: 12px 10px; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 2px solid var(--border-color); text-align: left; }
+            td { padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 13px; }
+
+            .status-prazo { font-size: 10px; font-weight: 700; display: inline-block; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+            .atrasado { background-color: #fdeaea; color: #c0392b; }
+            .hoje { background-color: #fff4e5; color: #d35400; }
+            .adiantado { background-color: #eafaf1; color: #229954; }
+            .entregue { background-color: #ebf5fb; color: #1a5276; }
+
+            .subtotal-cliente-row { background-color: #fdfdfe; font-weight: 600; color: #1a5276; }
+            .subtotal-row { background-color: #f1f3f5; font-weight: 700; }
+            .grand-total-row { background-color: #e7f1ff; color: var(--primary-dark); font-weight: 700; }
+            
+            /* Classe para destacar saldo diferente */
+            .saldo-diferente { background-color: var(--warning-bg) !important; }
+
+            .total-label-cell { text-align: right; padding-right: 20px; }
+            .row-hidden { display: none !important; }
+
+            /* --- RESPONSIVIDADE MOBILE (ESTILO CARDS) --- */
+            @media (max-width: 992px) {
+                .container { padding: 10px; }
+                table { min-width: 100%; }
+                .table-responsive { overflow-x: visible; }
+
+                table thead { display: none; }
+                table, tbody, tr, td { display: block; width: 100%; box-sizing: border-box; }
+                
+                tr.data-row { 
+                    margin-bottom: 15px; 
+                    border: 1px solid var(--border-color); 
+                    border-radius: 10px; 
+                    padding: 12px; 
+                    background: #ffffff !important;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+                }
+
+                /* Manter destaque no mobile */
+                tr.data-row.saldo-diferente { background: var(--warning-bg) !important; border-color: #ffe066; }
+                
+                td { 
+                    display: flex; 
+                    justify-content: space-between; 
+                    align-items: flex-start;
+                    padding: 8px 0; 
+                    border-bottom: 1px solid #f1f3f5; 
+                    min-height: auto;
+                    gap: 10px;
+                }
+                
+                td:last-child { border-bottom: none; }
+                
+                td::before { 
+                    content: attr(data-label); 
+                    font-weight: 700; 
+                    font-size: 9px; 
+                    color: var(--text-muted); 
+                    text-transform: uppercase; 
+                    width: 90px; 
+                    flex-shrink: 0;
+                    text-align: left;
+                }
+
+                td > * { text-align: right; font-size: 12px; flex-grow: 1; }
+
+                .subtotal-cliente-row, .subtotal-row, .grand-total-row {
+                    margin-bottom: 8px;
+                    padding: 10px;
+                    border: 1px solid var(--border-color);
+                    border-radius: 6px;
+                }
+                .total-label-cell { text-align: left; padding-right: 0; font-size: 11px; margin-bottom: 4px; }
+                .total-valor-cell { justify-content: center; font-size: 14px; border-bottom: none; }
+                
+                .subtotal-cliente-row td, .subtotal-row td, .grand-total-row td { display: block; text-align: center; }
+                .subtotal-cliente-row td::before, .subtotal-row td::before, .grand-total-row td::before { display: none; }
+            }
+        }
+
+        /* --- ESTILOS ORIGINAIS DE IMPRESSÃO --- */
+        @media print {
+            body { font-family: sans-serif; margin: 0; padding: 0; background: white; color: black; }
+            .navigation-buttons, .filter-panel { display: none; }
+            h2 { text-align: center; margin-bottom: 10px; font-size: 16pt; }
+            h3 { text-align: left; font-size: 12pt; margin-bottom: 10px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 1px solid #000; min-width: 100%; }
+            th, td { padding: 5px; text-align: left; border: 1px solid #000; font-size: 8pt; display: table-cell !important; width: auto !important; }
+            th { background-color: #f2f2f2 !important; font-weight: bold; -webkit-print-color-adjust: exact; }
+            tr { display: table-row !important; border: none !important; margin-bottom: 0 !important; padding: 0 !important; box-shadow: none !important; }
+            
+            /* Manter destaque na impressão */
+            tr.saldo-diferente { background-color: var(--warning-bg) !important; -webkit-print-color-adjust: exact; }
+            
+            td::before { display: none !important; }
+            .status-prazo { font-weight: bold; display: block; font-size: 8pt; }
+            .subtotal-cliente-row, .subtotal-row, .grand-total-row { font-weight: bold; display: table-row !important; }
+            .total-label-cell { text-align: right; padding-right: 15px; display: table-cell !important; }
+            .card-table { box-shadow: none; border: none; overflow: visible; }
+            .container { max-width: 100%; width: 100%; padding: 0; }
+            .row-hidden { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h2>PEDIDO INTERNO</h2>
+        <h3>Data: {{ data_atual|date:"d/m/Y" }}</h3>
+    </header>
+
+    <div class="navigation-buttons">
+        <button class="btn btn-back" onclick="window.history.back()">Voltar</button>
+        <button class="btn btn-primary" onclick="window.print()">Imprimir Pedido</button>
+        <a href="?{{ request.GET.urlencode }}&formato=excel" class="btn btn-success">
+            Exportar para Excel
+        </a>
+    </div>
+
+    <!-- Painel de Filtros -->
+    <div class="filter-panel">
+        <div class="filter-grid">
+            <div class="filter-group">
+                <label for="filter-cliente">Cliente</label>
+                <input type="text" id="filter-cliente" class="filter-input" placeholder="Filtrar cliente...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-artigo">Artigo</label>
+                <input type="text" id="filter-artigo" class="filter-input" placeholder="Filtrar artigo...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-dias">Dias Transporte</label>
+                <input type="number" id="filter-dias" class="filter-input input-logistica" placeholder="Dias..." min="0">
+            </div>
+            <div class="filter-group">
+                <label for="filter-date-start">Início Período</label>
+                <input type="date" id="filter-date-start" class="filter-input">
+            </div>
+            <div class="filter-group">
+                <label for="filter-date-end">Fim Período</label>
+                <input type="date" id="filter-date-end" class="filter-input">
+            </div>
+            <div class="filter-group">
+                <label for="filter-contract">Contrato</label>
+                <input type="text" id="filter-contract" class="filter-input" placeholder="Contrato...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-obs">Observações</label>
+                <input type="text" id="filter-obs" class="filter-input" placeholder="Obs...">
+            </div>
+        </div>
+    </div>
+
+    <div class="card-table">
+        <div class="table-responsive">
+            <table id="pedidos-table">
+                <thead>
+                    <tr>
+                        <th>NR.CONTRACT</th>
+                        <th>COD.PED COMPRA</th>
+                        <th>CLIENTE</th>
+                        <th>ARTIGO/CLASSE</th>
+                        <th>QT.PEDIDO</th>
+                        <th>SALDO A ENT.</th>
+                        <th>DATA EMB.</th>
+                        <th>DATA ENT.</th>
+                        <th>OBSERVAÇÕES</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for grupo in pedidos_agrupados.values %}
+                        {% for item in grupo.items %}
+                            {% with saldo=item.quantidade|sub:item.quantidade_entregue %}
+                            <tr class="data-row {% if saldo != item.quantidade %}saldo-diferente{% endif %}" 
+                                data-contract="{{ item.nr_contract|lower }}" 
+                                data-cliente="{{ item.cliente|lower }}" 
+                                data-artigo="{{ item.artigo|lower }}"
+                                data-obs="{{ item.obs|lower }}"
+                                data-date="{{ item.dt_programada|date:'Y-m-d' }}"
+                                data-month-year="{{ grupo.mes_display }}">
+                                <td data-label="Nr. Contract"><strong>{{ item.nr_contract }}</strong></td>
+                                <td data-label="Cód. Interno">{{ item.nr_pedido_cliente }}</td>
+                                <td data-label="Cliente">{{ item.cliente }}</td>
+                                <td data-label="Artigo">{{ item.artigo }} / {{item.selecao}}</td>
+                                <td data-label="Qt. Pedido">
+                                    <strong class="row-qty" data-unidade="{{ item.unidade_medida|default:'N/D' }}">{{ item.quantidade }}</strong> <small>({{ item.unidade_medida|default:"N/D" }})</small>
+                                </td>
+                                <td data-label="Saldo a Ent.">
+                                    {% if saldo <= 0 %}
+                                        <span style="color:var(--success-color);font-weight:bold">Entregue</span>
+                                    {% else %}
+                                        <strong style="color:var(--danger-color)">{{ saldo|format_br }}</strong> <small>({{ item.unidade_medida|default:"N/D" }})</small>
+                                    {% endif %}
+                                </td>
+                                <td data-label="Data Emb.">
+                                    <span class="data-embarque-original" 
+                                          data-raw-date="{{ item.dt_embarque|date:'Y-m-d' }}"
+                                          data-original-text="{{ item.dt_embarque|date:'d/m/y' }}">
+                                          {{ item.dt_embarque|date:"d/m/y" }}
+                                    </span>
+                                    <span class="status-prazo {{ item.status_prazo_classe }}">
+                                        {{ item.status_prazo_texto }}
+                                    </span>
+                                </td>
+                                
+                                <td data-label="Data Ent.">
+                                    <span class="data-entrega" 
+                                          data-raw-date="{{ item.dt_programada|date:'Y-m-d' }}"
+                                          data-original-text="({{ item.dt_programada|date:'d/m/y' }})">
+                                          {{ item.dt_programada|date:"d/m/y" }}
+                                    </span>
+                                    <span class="data-entrega-calc"></span>
+                                </td>
+                                <td data-label="Observações">
+                                    <span class="obs-text">{% if item.obs %}{{ item.obs }}{% endif %}</span>
+                                </td>
+                            </tr>
+                            {% endwith %}
+                        {% endfor %}
+
+                        <!-- Subtotais Mensais por Cliente (Dinâmicos) -->
+                        {% if grupo.clientes %}
+                            {% for cliente, unidades in grupo.clientes.items %}
+                                {% for unidade, total in unidades.items %}
+                                    <tr class="subtotal-cliente-row dynamic-subtotal-cliente" 
+                                        data-month-year="{{ grupo.mes_display }}" 
+                                        data-cliente-key="{{ cliente|lower }}"
+                                        data-unidade="{{ unidade }}">
+                                        <td colspan="4" class="total-label-cell">Subtotal - {{ cliente }}:</td>
+                                        <td class="total-valor-cell">
+                                            <strong class="subtotal-value">0,00</strong> <strong>({{ unidade }})</strong>
+                                        </td>
+                                        <td colspan="4"></td>
+                                    </tr>
+                                {% endfor %}
+                            {% endfor %}
+                        {% endif %}
+
+                        <!-- Totais Mensais (Dinâmicos) -->
+                        {% if grupo.subtotais %}
+                            {% for unidade, total in grupo.subtotais.items %}
+                                <tr class="subtotal-row dynamic-subtotal-mes" 
+                                    data-month-year="{{ grupo.mes_display }}" 
+                                    data-unidade="{{ unidade }}">
+                                    <td colspan="4" class="total-label-cell">{% if forloop.first %}Totais para {{ grupo.mes_display }}:{% endif %}</td>
+                                    <td class="total-valor-cell">
+                                        <strong class="subtotal-value">0,00</strong> <strong>({{ unidade }})</strong>
+                                    </td>
+                                    <td colspan="4"></td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                    {% endfor %}
+                </tbody>
+                <tfoot id="table-footer">
+                    <!-- Total Geral Final -->
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const filterInputs = document.querySelectorAll('.filter-input');
+    const dataRows = document.querySelectorAll('.data-row');
+    const subtotalClienteRows = document.querySelectorAll('.dynamic-subtotal-cliente');
+    const subtotalMesRows = document.querySelectorAll('.dynamic-subtotal-mes');
+    const tableFooter = document.getElementById('table-footer');
+    const inputDias = document.getElementById('filter-dias');
+    const inputDateStart = document.getElementById('filter-date-start');
+    const inputDateEnd = document.getElementById('filter-date-end');
+
+    function isBusinessDay(date) {
+        const day = date.getDay();
+        return day >= 1 && day <= 5;
+    }
+
+    function applyFilters() {
+        const valCliente = document.getElementById('filter-cliente').value.toLowerCase();
+        const valArtigo = document.getElementById('filter-artigo').value.toLowerCase();
+        const valContract = document.getElementById('filter-contract').value.toLowerCase();
+        const valObs = document.getElementById('filter-obs').value.toLowerCase();
+        const diasTransp = parseInt(inputDias.value) || 0;
+        const dateStart = inputDateStart.value;
+        const dateEnd = inputDateEnd.value;
+
+        let grandTotals = {};
+        let monthlyTotals = {};
+        let clientTotals = {};
+
+        dataRows.forEach(row => {
+            const txtCliente = row.getAttribute('data-cliente');
+            const txtArtigo = row.getAttribute('data-artigo');
+            const txtContract = row.getAttribute('data-contract');
+            const txtObs = row.getAttribute('data-obs');
+            const rowDate = row.getAttribute('data-date');
+            const monthYear = row.getAttribute('data-month-year');
+
+            let matches = txtCliente.includes(valCliente) &&
+                          txtArtigo.includes(valArtigo) &&
+                          txtContract.includes(valContract) &&
+                          txtObs.includes(valObs);
+
+            if (matches && dateStart && rowDate < dateStart) matches = false;
+            if (matches && dateEnd && rowDate > dateEnd) matches = false;
+
+            if (matches) {
+                row.classList.remove('row-hidden');
+
+                const spanEmb = row.querySelector('.data-embarque-original');
+                const spanEnt = row.querySelector('.data-entrega-calc');
+                const rawDateStr = spanEmb.getAttribute('data-raw-date');
+
+                if (diasTransp > 0 && rawDateStr) {
+                    let dateEmb = new Date(rawDateStr + 'T12:00:00');
+                    let dateEnt = new Date(dateEmb);
+                    dateEnt.setDate(dateEnt.getDate() + diasTransp);
+                    while (!isBusinessDay(dateEnt)) dateEnt.setDate(dateEnt.getDate() + 1);
+                    let dateEmbFinal = new Date(dateEnt);
+                    dateEmbFinal.setDate(dateEmbFinal.getDate() - diasTransp);
+                    spanEmb.innerHTML = `<strong>(${dateEmbFinal.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'2-digit'})})</strong>`;
+                    spanEnt.innerHTML = `<strong>${dateEnt.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'2-digit'})}</strong>`;
+                } else {
+                    spanEmb.innerHTML = spanEmb.getAttribute('data-original-text');
+                    spanEnt.innerHTML = '';
+                }
+
+                const qtyEl = row.querySelector('.row-qty');
+                const qty = parseFloat(qtyEl.innerText.replace(/\./g, '').replace(',', '.')) || 0;
+                const unidade = qtyEl.getAttribute('data-unidade');
+
+                grandTotals[unidade] = (grandTotals[unidade] || 0) + qty;
+                if (!monthlyTotals[monthYear]) monthlyTotals[monthYear] = {};
+                monthlyTotals[monthYear][unidade] = (monthlyTotals[monthYear][unidade] || 0) + qty;
+                if (!clientTotals[monthYear]) clientTotals[monthYear] = {};
+                if (!clientTotals[monthYear][txtCliente]) clientTotals[monthYear][txtCliente] = {};
+                clientTotals[monthYear][txtCliente][unidade] = (clientTotals[monthYear][txtCliente][unidade] || 0) + qty;
+            } else {
+                row.classList.add('row-hidden');
+            }
+        });
+
+        subtotalClienteRows.forEach(subRow => {
+            const monthYear = subRow.getAttribute('data-month-year');
+            const clienteKey = subRow.getAttribute('data-cliente-key');
+            const unidade = subRow.getAttribute('data-unidade');
+            const total = (clientTotals[monthYear] && clientTotals[monthYear][clienteKey] && clientTotals[monthYear][clienteKey][unidade]) || 0;
+            if (total > 0) {
+                subRow.classList.remove('row-hidden');
+                subRow.querySelector('.subtotal-value').innerText = total.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            } else {
+                subRow.classList.add('row-hidden');
+            }
+        });
+
+        subtotalMesRows.forEach(subRow => {
+            const monthYear = subRow.getAttribute('data-month-year');
+            const unidade = subRow.getAttribute('data-unidade');
+            const total = (monthlyTotals[monthYear] && monthlyTotals[monthYear][unidade]) || 0;
+            if (total > 0) {
+                subRow.classList.remove('row-hidden');
+                subRow.querySelector('.subtotal-value').innerText = total.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            } else {
+                subRow.classList.add('row-hidden');
+            }
+        });
+
+        renderGrandTotal(grandTotals);
+    }
+
+    function renderGrandTotal(grandTotals) {
+        tableFooter.innerHTML = '';
+        let first = true;
+        Object.entries(grandTotals).forEach(([unidade, total]) => {
+            const tr = document.createElement('tr');
+            tr.className = 'grand-total-row';
+            tr.innerHTML = `
+                <td colspan="4" class="total-label-cell">${first ? 'TOTAL GERAL:' : ''}</td>
+                <td class="total-valor-cell"><strong>${total.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})} (${unidade})</strong></td>
+                <td colspan="4"></td>
+            `;
+            tableFooter.appendChild(tr);
+            first = false;
+        });
+    }
+
+    filterInputs.forEach(input => input.addEventListener('input', applyFilters));
+    applyFilters();
+});
+</script>
+</body>
+</html>

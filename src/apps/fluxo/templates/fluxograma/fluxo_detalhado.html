@@ -1,0 +1,148 @@
+{% load static %}
+{% load l10n %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Fluxo Detalhado da Requisição</title>
+    <link rel="stylesheet" href="{% static 'admin/css/base.css' %}">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+
+        .no-print {
+            margin-bottom: 20px;
+        }
+
+        .requisicao {
+            border: 1px solid #ddd;
+            margin-bottom: 30px;
+            padding: 20px;
+            border-radius: 10px;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            background-color: #007BFF;
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 0;
+        }
+
+        /* Ajustei a margem para separar caso haja múltiplas caixas azuis */
+        .processo-atual {
+            background-color: #d6f0ff;
+            padding: 10px;
+            border-left: 6px solid #007BFF;
+            margin-top: 15px;
+            margin-bottom: 10px; 
+            border-radius: 6px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f0f0f0;
+        }
+
+        .footer {
+            font-size: 12px;
+            text-align: center;
+            margin-top: 50px;
+            color: #888;
+        }
+
+        @media print {
+            .no-print {
+                display: none;
+            }
+            body {
+                padding: 0;
+                background-color: #fff;
+            }
+            .requisicao {
+                box-shadow: none;
+                border: 1px solid #000;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="no-print">
+    <button onclick="window.print()">🖨️ Imprimir</button>
+</div>
+
+{% for req in objetos %}
+    <div class="requisicao">
+        <h2>Requisição {{ req.cd_requisicao }} Lote: {{req.lote}} - {{ req.artigo }}</h2>
+
+        <p><strong>Quantidade Total:</strong> {{ req.quantidade }} peças</p>
+
+        {% for ativo in req.processos_ativos_agrupados %}
+            <div class="processo-atual">
+                <h3>📌 Processo Atual: {{ ativo.nome|upper }}</h3>
+                <p><strong>Início:</strong> {{ ativo.dt_processo|date:"d \d\e F \d\e Y" }}</p>
+                <p><strong>Tempo até agora:</strong> {{ ativo.tempo_no_processo }}</p>
+                <p><strong>Quantidade em Processo:</strong> {{ ativo.quantidade }} peças</p>
+            </div>
+        {% empty %}
+            {% if not req.encerrado %}
+                <p><em>Nenhum processo ativo atualmente.</em></p>
+            {% endif %}
+        {% endfor %}
+
+        {% if req.encerrado %}
+            <p style="color: green; font-weight: bold;">✔️ Este lote já foi totalmente encerrado.</p>
+        {% endif %}
+
+        <h3>📜 Histórico de Processos:</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Processo</th>
+                    <th>Data de Início</th>
+                    <th>Quantidade</th>
+                    <th>Tempo no Processo</th>
+                    <th>Encerrado?</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fluxo in req.fluxos_com_tempo %}
+                    <tr>
+                        <td>{{ fluxo.processo.nome }}</td>
+                        <td>{{ fluxo.dt_processo|date:"d \d\e F \d\e Y" }}</td>
+                        <td>{{ fluxo.quantidade }}</td>
+                        <td>{{ fluxo.tempo_processo }}</td>
+                        <td>{% if fluxo.encerrado %}✔️{% else %}❌{% endif %}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="5">Nenhum processo registrado.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+    </div>
+{% endfor %}
+
+<div class="footer no-print">
+    <p>Relatório gerado em {{ today|date:"d/m/Y" }}</p>
+</div>
+
+</body>
+</html>

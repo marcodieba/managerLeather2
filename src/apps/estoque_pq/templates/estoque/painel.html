@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Painel</title>
+    <style>
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 13px;
+        }
+
+        th, td {
+            border: 1px solid #000;
+            padding: 4px;
+            text-align: right;
+        }
+
+        th {
+            background: #6c757d;
+            color: #fff;
+        }
+
+        .nome {
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .risco {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<table>
+    <thead>
+        <tr>
+            <th>PRODUTO</th>
+            <th>ESTOQUE ANT</th>
+            <th>CONTAGEM</th>
+            <th>TRANSITO</th>
+            <th>TOTAL</th>
+            <th>%</th>
+            <th>CONS/DIA</th>
+            <th>PREV CONS</th>
+            <th>PREV EST</th>
+            <th>AUTONOMIA</th>
+            <th>RISCO</th>
+            <th>VALOR</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for p in produtos %}
+        <tr>
+            <td class="nome">{{ p.produto }}</td>
+
+            <td>{{ p.estoque_anterior|floatformat:0 }}</td>
+            <td>{{ p.contagem_fisica|floatformat:0 }}</td>
+            <td>{{ p.em_transito|floatformat:0 }}</td>
+
+            <td>{{ p.estoque_total|floatformat:0 }}</td>
+
+            <td>{{ p.percentual|floatformat:2 }}</td>
+            <td>{{ p.consumo_diario|floatformat:2 }}</td>
+
+            <td>{{ p.previsao_consumo|floatformat:0 }}</td>
+            <td>{{ p.previsao_estoque|floatformat:0 }}</td>
+
+            <td>{{ p.autonomia_dias|floatformat:2 }}</td>
+
+            <td class="risco">{{ p.risco }}</td>
+
+            <td>R$ {{ p.ultimo_valor|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+
+    <tfoot>
+        <tr>
+            <td><b>TOTAL</b></td>
+            <td colspan="3"></td>
+            <td>{{ total_estoque|floatformat:0 }}</td>
+            <td></td>
+            <td>{{ total_consumo|floatformat:0 }}</td>
+            <td>{{ total_previsao|floatformat:0 }}</td>
+            <td colspan="4"></td>
+        </tr>
+    </tfoot>
+</table>
+
+</body>
+</html>

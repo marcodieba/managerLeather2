@@ -1,0 +1,110 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Resumo de Lotes em Processo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        .no-print { margin-bottom: 20px; }
+        
+        .header-relatorio {
+            background-color: #007BFF;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th { background-color: #f0f0f0; }
+        
+        .processo-atual {
+            background-color: #d6f0ff;
+            padding: 8px;
+            border-left: 4px solid #007BFF;
+            margin-bottom: 8px; 
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .footer {
+            font-size: 12px;
+            text-align: center;
+            margin-top: 30px;
+            color: #888;
+        }
+
+        @media print {
+            .no-print { display: none; }
+            body { background-color: #fff; padding: 0; }
+            table { box-shadow: none; border: 1px solid #000; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="no-print">
+    <button style="padding: 8px 16px; cursor: pointer;" onclick="window.print()">🖨️ Imprimir Relatório</button>
+</div>
+
+<div class="header-relatorio">
+    <h2 style="margin: 0;">Visão Geral Produtiva - Lotes em Processo</h2>
+    <p style="margin: 5px 0 0 0;">Apenas lotes ativos que já iniciaram o Recurtimento.</p>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Nº Req. / Lote</th>
+            <th>Artigo</th>
+            <th>Início do Fluxo Total</th>
+            <th>Tempo Total em Fábrica</th>
+            <th>Setor(es) Atual(is) e Tempo de Retenção</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in dados %}
+            <tr>
+                <td><strong>{{ item.cd_requisicao }}</strong><br><small>Lote: {{ item.lote }}</small></td>
+                <td>{{ item.artigo }}</td>
+                <td>{{ item.data_inicio|date:"d/m/Y H:i" }}</td>
+                <td style="color: #d9534f; font-weight: bold;">{{ item.tempo_total }}</td>
+                <td>
+                    {% for local in item.locais_atuais %}
+                        <div class="processo-atual">
+                            <strong>{{ local.nome }}</strong> ({{ local.quantidade }} peças)<br>
+                            <span style="color: #555;">⏱️ Retido na máquina há: {{ local.tempo_no_setor }}</span>
+                        </div>
+                    {% endfor %}
+                </td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="5" style="text-align: center;">Nenhum lote ativo encontrado com os critérios atuais.</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="footer no-print">
+    <p>Relatório gerado em {{ today|date:"d/m/Y" }}</p>
+</div>
+
+</body>
+</html>

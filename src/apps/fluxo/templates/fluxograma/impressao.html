@@ -1,0 +1,372 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ficha de Produção</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            max-width: 960px; /* Largura máxima para telas maiores */
+            margin: 0 auto; /* Centralizar o conteúdo */
+        }
+
+        h1 {
+            color: #377ba8;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header-info {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap; /* Quebrar em telas menores */
+        }
+
+        .header-info > div {
+            flex: 1 1 200px;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            background-color: #c8eaff;
+            font-size: 24px;
+    font-weight: 700;
+        }
+
+        .header-info strong {
+            font-weight: bold;
+            color: #555;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .ficha-info {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+
+        .ficha-info strong {
+            font-weight: bold;
+            color: #555;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .observacoes {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+
+        .observacoes strong {
+            font-weight: bold;
+            color: #555;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .table-container {
+            overflow-x: auto; /* Habilitar rolagem horizontal em telas pequenas */
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+            border: 2px solid #ddd;
+        }
+
+        th, td {
+            border: 2px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+        }
+
+        .instrucoes {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .instrucoes p {
+            margin-bottom: 10px;
+            line-height: 1.6;
+        }
+
+        .instrucoes strong {
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .imgs {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: nowrap;
+        }
+
+        .imgs > h1 {
+            padding-left: 80px;
+        }
+
+        /* Estilos para impressão */
+    @media print {
+    body {
+        background-color: #fff;
+        color: #000;
+        margin: 0;
+        padding: 0;
+        font-size: 12px;
+    }
+
+
+    h1 {
+        font-size: 18px;
+        margin-bottom: 10px;
+    }
+
+    .imgs {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        margin-bottom: 10px;
+        /* Garantir que não haja overflow no cabeçalho da imagem/título */
+        overflow: hidden; /* Adicionado */
+    }
+
+    .imgs img {
+        width: 90px; /* Levemente reduzido o tamanho da logo para dar mais espaço */
+        height: auto;
+        margin-right: 10px; /* Reduzido o espaço entre a logo e o título */
+    }
+
+    .imgs h1 {
+        font-size: 16px; /* Levemente reduzido o tamanho do título */
+        margin: 0;
+        padding-left: 0;
+        flex-grow: 1;
+        text-align: left;
+        /* Evitar que o título seja muito grande e cause corte */
+        white-space: normal; /* Permite que o título quebre linha se necessário */
+        word-wrap: break-word; /* Garante que palavras longas quebrem */
+    }
+
+    .header-info {
+        /* Reduzindo o gap e permitindo quebras */
+        gap: 8px; /* Levemente reduzido o espaçamento entre os divs do cabeçalho */
+        margin-bottom: 8px; /* Ajustado a margem inferior */
+        flex-wrap: wrap; /* É importante que ele possa quebrar */
+        page-break-inside: avoid;
+    }
+
+    .header-info > div {
+        padding: 5px; /* Reduzido o padding interno dos divs do cabeçalho */
+        font-size: 11px; /* Levemente reduzido a fonte para caber mais */
+        flex: 1 1 auto; /* Permite que os itens se ajustem flexivelmente */
+        min-width: 100px; /* Adicionado um min-width para evitar que fiquem minúsculos */
+        max-width: 100%; /* Garante que não transborde */
+        box-sizing: border-box; /* Garante que padding e border sejam incluídos na largura */
+    }
+
+    .ficha-info,
+    .observacoes,
+    .instrucoes {
+        padding: 8px; /* Reduzido o padding */
+        font-size: 11px; /* Reduzido a fonte */
+        margin-bottom: 8px; /* Ajustado a margem inferior */
+        page-break-inside: avoid;
+    }
+
+    
+
+    table {
+        font-size: 11px; /* Reduzido a fonte da tabela */
+        width: 100%; /* Fundamental para a tabela se ajustar */
+        table-layout: fixed; /* Ajuda a distribuir as colunas igualmente */
+    }
+
+    th, td {
+        padding: 5px; /* Reduzido o padding das células da tabela */
+        /* Adicionar overflow para garantir que o texto dentro da célula não cause transbordo */
+        overflow: hidden;
+        text-overflow: ellipsis; /* Adiciona '...' se o texto for cortado */
+        white-space: nowrap; /* Tenta manter o texto em uma linha, mas pode ser removido se preferir quebras */
+        box-sizing: border-box;
+    }
+
+    /* Removendo white-space: nowrap para células se necessário */
+    th:nth-child(2), td:nth-child(2) { /* Ajusta a coluna de Regulagens/OBS */
+        white-space: normal; /* Permite que este campo quebre linha, pois pode ser longo */
+        word-wrap: break-word;
+    }
+
+
+    .instrucoes p {
+        margin-bottom: 5px;
+        line-height: 1.3;
+    }
+
+    .no-print {
+        display: none !important;
+    }
+
+    @page {
+        size: A4 portrait;
+        margin-left: 0.8cm; /* Reduzindo um pouco as margens da página para dar mais espaço */
+        
+    }
+}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="no-print" style="text-align: right; margin-bottom: 10px;">
+            <button onclick="window.print()" style="
+                padding: 8px 16px;
+                background-color: #377ba8;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+                cursor: pointer;
+            ">
+                🖨️ Imprimir
+            </button>
+        </div>
+        <div class="imgs">
+            <img src="{% static 'imgs/logo.png' %}" width="150" alt="Logo">
+            
+            <img src="{{ item.get_qrcode_base64 }}" alt="QR Code {{ item.cd_requisicao }}" width="100" height="100" style="margin-left: 20px;">
+                        
+            <h1>FLUXOGRAMA DE PRODUÇÃO - SEA</h1>
+        </div>
+        {% for item in objetos %}
+        <img src="{{ item.get_qrcode_base64 }}" alt="QR Code {{ item.cd_requisicao }}" width="100" height="100" style="margin-left: 20px;">
+
+            {% if item.pedido_links.select_related %}
+                {%  for link in item.pedido_links.select_related %}
+                    <div class="header-info">
+                        <div><strong>CLIENTE:</strong> {{link.pedido.cliente}}</div>
+                        <div><strong>Nº PEDIDO:</strong>{{link.pedido.nr_contract}}</div>
+                    </div>
+                    <div class="header-info">
+                        <div><strong>ARTIGO:</strong> {{link.pedido.artigo}}</div>
+                    </div>
+                    <div class="header-info">
+                        <div><strong>RQ:</strong> {{ item.cd_requisicao }}</div>
+                        <div><strong>FULÃO:</strong> {{item.fulao}}</div>
+                        <div><strong>MARCA NO COURO:</strong>{{ item.lote }}</div>
+                    </div>
+
+                    <div class="header-info">
+                        <div><strong>CLASSE:</strong>{{link.pedido.selecao}}</div>
+                        <div><strong>ESPES. FINAL:</strong> {{link.pedido.espessura}}</div>
+                        <div><strong>QUANTIDADE:</strong>{{item.quantidade}}</div>
+                        <div><strong>COR:</strong> {{item.cor}}</div>
+                        
+                    </div>
+
+                    <div class="ficha-info">
+                        <strong>FICHA:</strong> {{item.ficha}}
+                    </div>
+                    <div class="observacoes">
+                        <strong>OBSERVAÇÕES:</strong> 
+                        <h1>{{ item.obs }}</h1>
+         
+                    </div>
+
+                {% endfor  %}
+            {% else %}
+                <div class="header-info">
+                    <div><strong>CLIENTE:</strong> {{item.pedido}}</div>
+                </div>
+                <div class="header-info">
+                    <div><strong>RQ:</strong> {{ item.cd_requisicao }}</div>
+                    <div><strong>FULÃO:</strong> {{item.fulao}}</div>
+                    <div><strong>MARCA NO COURO:</strong>{{ item.lote }}</div>
+                </div>
+
+                <div class="header-info">
+                    <div><strong>CLASSE:</strong> {{item.classe}}</div>
+                    <div><strong>Nº PEDIDO:</strong>{{item.nr_pedido}}</div>
+                    <div><strong>ESPES. FINAL:</strong> {{item.espessura}}</div>
+                    <div><strong>ARTIGO:</strong> {{item.artigo|truncatewords:3}}</div>
+                    <div><strong>QUANTIDADE:</strong>{{item.quantidade}}</div>
+                    <div><strong>COR:</strong> {{item.cor}}</div>
+                </div>
+
+                <div class="ficha-info">
+                    <strong>FICHA:</strong> {{item.ficha}}
+                </div>
+                <div class="observacoes">
+                    <strong>OBSERVAÇÕES:</strong> {{ item.obs }}
+     
+                </div>
+                {% endif %}
+
+
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>OPERAÇÃO</th>
+                            <th>REGULAGENS/OBS</th>
+                            <th>DATA</th>
+                            <th>RESPONSÁVEL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if item.artigo_padrao %}
+                            {% for roteiro in item.artigo_padrao.roteiros.all %}
+                            <tr>
+                                <td>{{ roteiro.ordem }}º - {{ roteiro.processo.nome }}</td>
+                                <td>{{ roteiro.regulagem }}</td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="4" style="text-align:center; color:red; padding: 20px;">
+                                    <em>⚠️ Artigo genérico não vinculado! O sistema não encontrou nenhum artigo no menu "Artigos" compatível com o texto "{{ item.artigo }}". <br>
+                                    Vá na Requisição e vincule o artigo padrão manualmente.</em>
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        {% endfor %}
+        <div class="instrucoes">
+            <strong>SEPARAR ATENTAMENTE AS FICHAS</strong>
+            <p><strong>PRECISAMOS QUE TODOS COOPEREM PARA A RASTREA BILADADE DO COURO;</strong></p>
+            <p><strong>SENDO ASSIM DEIXANDO A PLACA NO DEVIDO LUGAR // OU SEJA JUNTO AO LOTE/COURO...</strong></p>
+        </div>
+    </div>
+</body>
+</html>

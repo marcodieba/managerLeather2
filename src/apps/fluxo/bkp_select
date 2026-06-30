@@ -1,0 +1,39 @@
+select x.* from (
+                                            Select
+                                            PP.Codigo,
+                                            C.Nome_Fantasia_CNPJ as Cliente,
+                                            P.Nr_Pedido_Interno,
+                                            P.Nr_Invoice_PI as Nr_Contract,
+                                            PP.Selecao,
+                                            PP.Artigo_Descricao as Artigo,
+                                            P.Dt_pedido,
+
+                                            case when PP.Artigo_Produto = 'C' then 'COURO WB' else
+                                            case when PP.Artigo_Produto = 'S' then 'COURO SEMI' else
+                                            case when PP.Artigo_Produto = 'A' then 'COURO ACAB' else
+                                            case when PP.Artigo_Produto = 'R' then 'RASPA' else
+                                            'COURO OUTROS' end end end end as Produto,
+
+                                            PP.Quantidade_Sqft,
+                                            (Select sum(EE.Pes2) From Pedido_Comercial_Programacao_WB PWB
+                                            inner join Estoque_Expedicao EE On EE.Cd_Pedido_Comercial_Artigo = PWB.Codigo
+                                            Where PWB.Cd_Pedido_Comercial_Detalhes = PP.Codigo) as Pes2_Expedidos,
+                                            PWB.Dt_Programada,
+
+
+                                            Case when P.Efetivar = 0 then 'N' else 'S' end as Fechados,
+                                            PP.Espessura
+
+
+                                            From Pedido_Comercial_Detalhes PP
+                                            Left outer join Pedido_Comercial_Selection PS ON PP.Selecao = PS.Nome
+                                            inner join Pedido_Comercial P On P.Codigo = PP.Cd_Pedido_Comercial
+                                            inner join Fornecedor_Cliente_CNPJ C On C.Codigo = P.Cd_Cliente_CNPJ
+                                            left outer join Pedido_Comercial_Substance PCS ON PCS.Nome = PP.Espessura
+                                            Left outer join WB_SeA_Espessura Esp ON Esp.Codigo = PCS.Cd_WB_Sea_Espessura
+                                            left outer join Pedido_Comercial_Programacao_WB PWB ON PWB.Cd_Pedido_Comercial_Detalhes = PP.Codigo
+                                            --Where P.Efetivar = 0
+
+                                            where P.Efetivar = 0)x
+
+                                    where Quantidade_Sqft >= 6 + Pes2_Expedidos / 10.764 or Pes2_Expedidos is null

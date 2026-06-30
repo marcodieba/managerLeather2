@@ -1,0 +1,199 @@
+{% load mathfilters %}
+{% load pedido_extras %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedido Interno de Matéria Prima</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h2 { text-align: center; margin-bottom: 20px; }
+        .navigation-buttons { margin-bottom: 20px; }
+        .navigation-buttons button, .navigation-buttons a {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-bottom: 20px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .navigation-buttons button:hover, .navigation-buttons a:hover {
+            background-color: #0056b3;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+            font-size: 0.7em;
+            border-right: 1px solid #ddd;
+        }
+        th { background-color: #f2f2f2; font-weight: bold; color: #333; }
+        th:last-child, td:last-child { border-right: none; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        tr:hover { background-color: #e0e0e0; }
+        .subtotal-row { background-color: #f2f2f2; font-weight: bold; }
+        .grand-total-row { background-color: #eaf2f8; color: #1a5276; font-weight: bold; font-size: 1.1em; }
+        .total-label-cell { text-align: right; padding-right: 15px; }
+        .mes-header { background-color: #d6eaf8; font-weight: bold; text-align: center; font-size: 1em; }
+        .cliente-header { background-color: #f9e79f; font-weight: bold; font-size: 0.9em; }
+
+        .status-prazo { font-size: 8px; font-weight: bold; display: block; }
+        .status-prazo.atrasado { color: #c0392b; }   /* vermelho */
+        .status-prazo.hoje { color: #d35400; }       /* laranja */
+        .status-prazo.adiantado { color: #229954; }  /* verde */
+        .status-prazo.entregue { color: #1a5276; }   /* azul */
+
+        @media print {
+            @page { margin: 10mm; }
+            body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .navigation-buttons { display: none; }
+            table { font-size: 0.7em; border-color: #000; }
+            th, td { padding: 6px; border-color: #000; }
+        }
+    </style>
+</head>
+<body>
+
+    <h2>PEDIDO INTERNO</h2>
+    <h3>Data: {{ data_atual|date:"d/m/Y" }}</h3>
+    <div class="navigation-buttons">
+        <button onclick="window.history.back()">Voltar</button>
+        <button onclick="window.print()">Imprimir</button>
+        <a href="?{{ request.GET.urlencode }}&formato=excel" style="background-color: #28a745;">
+            Exportar para Excel
+        </a>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>NR.CONTRACT</th>
+                <th>CODIGO INTERNO</th>
+                <th>CLIENTE</th>
+                <th>ARTIGO</th>
+                <th>QT.<br>PEDIDO</th>
+                <th>PRAZO <br>FINAL</th>
+                <th>Observações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for mes, grupo_mes in pedidos_agrupados.items %}
+                <tr class="mes-header">
+                    <td colspan="7">{{ grupo_mes.mes_display }}</td>
+                </tr>
+
+                {% for cliente, cliente_data in grupo_mes.clientes.items %}
+                    <tr class="cliente-header">
+                        <td colspan="7">Cliente: {{ cliente }}</td>
+                    </tr>
+
+                    {% for artigo, pedidos in cliente_data.artigos.items %}
+                        {% for item in pedidos %}
+                            <tr>
+                                <td style="width: 5%;">{{ item.nr_contract }}</td>
+                                <td style="width: 10%;">{{ item.nr_pedido_interno }}</td>
+                                <td style="width: 15%;">{{ item.cliente }}</td>
+                                <td style="width: 20%;">{{ item.artigo }}</td>
+                                <td style="width: 10%;">{{ item.quantidade|format_br }} ({{ item.unidade_medida|default:"N/D" }})</td>
+                                <td style="width: 11%;">
+                                    {% if item.dt_programada %}
+                                        {{ item.dt_programada|date:"d/m/y" }}
+                                        {% if item.dias_restantes < 0 %}
+                                            <span class="status-prazo atrasado">
+                                                (Atrasado há {{ item.dias_restantes|abs }} dia{{ item.dias_restantes|abs|pluralize:"s" }})
+                                            </span>
+                                        {% elif item.dias_restantes == 0 %}
+                                            <span class="status-prazo hoje">(Vence hoje)</span>
+                                        {% else %}
+                                            <span class="status-prazo adiantado">
+                                                (Faltam {{ item.dias_restantes }} dia{{ item.dias_restantes|pluralize:"s" }})
+                                            </span>
+                                        {% endif %}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>{% if item.obs %}{{ item.obs }}{% endif %}</td>
+                            </tr>
+                        {% endfor %}
+                    {% endfor %}
+
+                    {% for unidade, total in cliente_data.subtotais_cliente.items %}
+                        <tr class="subtotal-row">
+                            <td colspan="4" class="total-label-cell">Subtotal {{ cliente }}:</td>
+                            <td class="subtotal-valor" data-valor="{{ total }}" data-unidade="{{ unidade }}">
+                                {{ total|format_br }} ({{ unidade }})
+                            </td>
+                            <td colspan="2"></td>
+                        </tr>
+                    {% endfor %}
+                {% endfor %}
+
+                {% if grupo_mes.subtotais %}
+                    {% for unidade, total in grupo_mes.subtotais.items %}
+                        <tr class="subtotal-row">
+                            <td colspan="4" class="total-label-cell">
+                                Total do mês {{ grupo_mes.mes_display }}:
+                            </td>
+                            <td class="subtotal-valor" data-valor="{{ total }}" data-unidade="{{ unidade }}">
+                                {{ total|format_br }} ({{ unidade }})
+                            </td>
+                            <td colspan="2"></td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const totaisGerais = {};
+            const celulasSubtotal = document.querySelectorAll('.subtotal-valor');
+
+            celulasSubtotal.forEach(function(celula) {
+                const valor = parseFloat(celula.dataset.valor);
+                const unidade = celula.dataset.unidade;
+                if (!isNaN(valor)) {
+                    totaisGerais[unidade] = (totaisGerais[unidade] || 0) + valor;
+                }
+            });
+
+            const tabelaBody = document.querySelector('table tbody');
+            let isFirstTotalRow = true;
+            for (const unidade in totaisGerais) {
+                const total = totaisGerais[unidade];
+                const totalFormatado = total.toLocaleString('pt-BR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+                const novaLinha = document.createElement('tr');
+                novaLinha.className = 'grand-total-row';
+                if (isFirstTotalRow) novaLinha.classList.add('first');
+
+                novaLinha.innerHTML = `
+                    <td colspan="4" class="total-label-cell">${isFirstTotalRow ? 'TOTAL GERAL:' : ''}</td>
+                    <td>${totalFormatado} (${unidade})</td>
+                    <td colspan="2"></td>
+                `;
+                isFirstTotalRow = false;
+                tabelaBody.appendChild(novaLinha);
+            }
+        });
+    </script>
+
+</body>
+</html>

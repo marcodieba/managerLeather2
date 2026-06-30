@@ -1,0 +1,271 @@
+{% load static %}
+{% load mathfilters %}
+{% load pedido_extras %}
+{% load filter %}
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório de Pedidos Agrupados por Artigo</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; /* Fonte mais limpa */
+            margin: 10mm; /* Margem para impressão */
+            color: #333;
+            font-size: 8pt; /* Fonte base menor para compactar */
+            line-height: 1.3; /* Espaçamento entre linhas um pouco menor */
+        }
+        .page-container {
+            width: 100%;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50; /* Azul mais escuro */
+            font-size: 16pt;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        h2.artigo-group-title {
+            font-size: 12pt;
+            background-color: #BDC3C7; /* Cinza claro para o grupo */
+            color: #2c3e50;
+            padding: 6px 10px;
+            margin-top: 15px;
+            margin-bottom: 8px;
+            text-align: center;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+        
+        .pedido-container {
+            border: 1px solid #AEB6BF; /* Borda mais suave */
+            border-radius: 4px;
+            margin-bottom: 15px;
+            padding: 8px 12px; /* Padding interno */
+            background-color: #fdfefe; /* Fundo quase branco */
+        }
+
+        table.pedido-info-grid {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+        }
+        table.pedido-info-grid td {
+            padding: 3px 5px; /* Padding menor nas células */
+            vertical-align: top;
+            border-bottom: 1px dotted #D5DBDB; /* Linha pontilhada sutil entre as linhas */
+        }
+        table.pedido-info-grid tr:last-child td {
+            border-bottom: none; /* Remover borda da última linha */
+        }
+        table.pedido-info-grid strong { /* Rótulos em negrito */
+            font-weight: 600;
+            color: #566573; /* Cinza escuro para rótulos */
+            display: inline-block;
+            min-width: 100px; /* Largura mínima para os rótulos, ajuste conforme necessário */
+        }
+
+        .col-left { width: 65%; } /* Coluna da esquerda maior */
+        .col-right { width: 35%; } /* Coluna da direita menor */
+
+
+        .quantidade-pedido, .quantidade-entregue {
+            font-weight: 700; /* Mais negrito */
+            font-size: 1.05em;
+        }
+        .quantidade-pedido { color: #2980B9; } /* Azul para quantidade pedida */
+        .quantidade-entregue { color: #27AE60; } /* Verde para quantidade entregue */
+        .quantidade-entregue.parcial { color: #F39C12; } /* Laranja para entrega parcial */
+        .quantidade-entregue.nenhuma { color: #E74C3C; } /* Vermelho se nada entregue */
+
+        .section-title { /* Título para Requisições e Fluxos */
+            font-size: 9pt;
+            color: #34495E; /* Azul acinzentado */
+            font-weight: 600;
+            margin-top: 8px;
+            margin-bottom: 4px;
+            padding-bottom: 2px;
+            border-bottom: 1px solid #EAECEE; /* Linha sutil abaixo do título */
+        }
+
+        .requisicao-details {
+            margin-top: 5px;
+            padding: 6px 8px;
+            margin-left: 5px;
+            border-radius: 3px;
+            border: 1px solid #EBDEF0; /* Lilás muito claro */
+            background-color: #fcfaff; /* Fundo lilás mais sutil */
+            font-size: 7.5pt; /* Fonte menor para detalhes da requisição */
+        }
+        .requisicao-details p {
+            margin: 2px 0;
+            line-height: 1.2;
+        }
+        .requisicao-details strong {
+            font-weight: 600;
+            color: #7D3C98; /* Roxo para rótulos da requisição */
+        }
+
+        .fluxo-details {
+            margin-top: 4px;
+            padding: 4px 6px;
+            margin-left: 10px;
+            border-radius: 3px;
+            border: 1px dotted #D6EAF8; /* Azul pontilhado */
+            background-color: #f7fbff; /* Fundo azul extra claro */
+            font-size: 7pt; /* Fonte ainda menor para fluxos */
+        }
+        .fluxo-details p {
+            margin: 1px 0;
+            line-height: 1.1;
+        }
+        .fluxo-details strong {
+            font-weight: 600;
+            color: #1A5276; /* Azul escuro para rótulos do fluxo */
+        }
+
+        .status-prazo { font-weight: 700; }
+        .status-prazo.atrasado { color: #C0392B; } /* Vermelho mais escuro */
+        .status-prazo.hoje { color: #D35400; } /* Laranja mais escuro */
+        .status-prazo.adiantado { color: #229954; } /* Verde mais escuro */
+        .status-prazo.entregue { color: #1F618D; } /* Azul marinho */
+        .status-prazo.sem-data { color: #707B7C; } /* Cinza mais escuro */
+
+        .print-button-container {
+            text-align: right;
+            margin-bottom: 10px;
+        }
+        .print-button {
+            background-color: #3498DB; /* Azul mais claro */
+            color: white;
+            padding: 6px 10px; /* Botão menor */
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 8pt;
+        }
+        .print-button:hover {
+            background-color: #2980B9;
+        }
+
+        @media print {
+            body {
+                margin: 7mm; /* Margens de impressão ainda menores */
+                font-size: 7.5pt; /* Ajuste fino para impressão */
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .print-button-container { display: none; }
+            .page-container { max-width: none; }
+            h2.artigo-group-title { background-color: #BDC3C7 !important; color: #2c3e50 !important;}
+            .pedido-container { background-color: #fdfefe !important; border: 1px solid #999 !important;}
+            table.pedido-info-grid td { border-bottom: 1px dotted #ccc !important;}
+            .requisicao-details { background-color: #fcfaff !important; border: 1px solid #E5D9EA !important;}
+            .fluxo-details { background-color: #f7fbff !important; border: 1px dotted #C5DFF5 !important;}
+            .artigo-group { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        <div class="print-button-container">
+            <button class="print-button" onclick="window.history.back()">Voltar</button>
+            <button class="print-button" onclick="window.print()">🖨️ Imprimir</button>
+        </div>
+
+        <h1>Relatório de Pedidos Agrupados</h1>
+
+        {% for artigo_representante, pedidos_do_artigo in pedidos_agrupados.items %}
+            <div class="artigo-group">
+                <h2 class="artigo-group-title">Grupo de Artigo (Representante): {{ artigo_representante|default:"NÃO ESPECIFICADO" }}</h2>
+                
+                {% for pedido in pedidos_do_artigo %}
+                    <div class="pedido-container">
+                        <table class="pedido-info-grid">
+                            <tr>
+                                <td class="col-left"><strong>Pedido ID:</strong> {{ pedido.id }} (Contrato: {{ pedido.nr_contract|default:"-" }})</td>
+                                <td class="col-right"><strong>Data Pedido:</strong> {{ pedido.dt_pedido|date:"d/m/y H:i" }}</td> {# Data mais curta #}
+                            </tr>
+                            <tr>
+                                <td class="col-left"><strong>Cliente:</strong> {{ pedido.cliente }}</td>
+                                <td class="col-right"><strong>Status Pedido:</strong> {% if pedido.fechado %}Fechado{% else %}Aberto{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <td class="col-left"><strong>Artigo Original:</strong> {{ pedido.artigo|default:"Não Especificado" }}</td>
+                                <td class="col-right">
+                                    {% if pedido.dt_programada %}
+                                        {% with dias_diferenca=pedido.dt_programada|dias_ate_ou_desde:data_atual %}
+                                            <strong>Prazo ({{ pedido.dt_programada|date:"d/m/y" }}):</strong> {# Data mais curta #}
+                                            {% if pedido.fechado and pedido.quantidade_entregue >= pedido.quantidade %}
+                                                <span class="status-prazo entregue">Entregue</span>
+                                                {% if dias_diferenca < 0 %} ({{ dias_diferenca|abs }}d atraso)
+                                                {% elif dias_diferenca == 0 %} (no prazo)
+                                                {% elif dias_diferenca > 0 %} ({{ dias_diferenca }}d antes)
+                                                {% endif %}
+                                            {% else %}
+                                                {% if dias_diferenca < 0 %} <span class="status-prazo atrasado">ATRASADO {{ dias_diferenca|abs }}d</span>
+                                                {% elif dias_diferenca == 0 %} <span class="status-prazo hoje">HOJE</span>
+                                                {% elif dias_diferenca > 0 %} <span class="status-prazo adiantado">Faltam {{ dias_diferenca }}d</span>
+                                                {% endif %}
+                                            {% endif %}
+                                        {% endwith %}
+                                    {% else %}
+                                        <strong>Prazo:</strong> <span class="status-prazo sem-data">Não definido</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="col-left"><strong>Qt. Pedido:</strong> <span class="quantidade-pedido">{{ pedido.quantidade|floatformat:2 }}</span></td>
+                                {% with qt_entregue_float=pedido.quantidade_entregue|default:"0.0"|stringformat:"f"|add:"0" %}
+                                    {% if qt_entregue_float == 0 %}
+                                        <td class="col-right"><strong>Qt. Entregue:</strong> <span class="quantidade-entregue nenhuma">{{ pedido.quantidade_entregue|default:"0.0"|floatformat:2 }}</span></td>
+                                    {% elif qt_entregue_float < pedido.quantidade %}
+                                        <td class="col-right"><strong>Qt. Entregue:</strong> <span class="quantidade-entregue parcial">{{ pedido.quantidade_entregue|default:"0.0"|floatformat:2 }}</span></td>
+                                    {% else %}
+                                        <td class="col-right"><strong>Qt. Entregue:</strong> <span class="quantidade-entregue">{{ pedido.quantidade_entregue|default:"0.0"|floatformat:2 }}</span></td>
+                                    {% endif %}
+                                {% endwith %}
+                            </tr>
+                        </table>
+                    
+                        {% if pedido.requisicoes.all %}
+                            <div class="section-title">Requisições Associadas:</div>
+                            {% for requisicao in pedido.requisicoes.all %}
+                                <div class="requisicao-details">
+                                    <p><strong>CD:</strong> {{ requisicao.cd_requisicao }} | <strong>Lote:</strong> {{ requisicao.lote|default:"N/A" }} | <strong>Artigo:</strong> {{ requisicao.artigo|default_if_none:"N/A" }}</p>
+                                    <p><strong>Qt. Req.:</strong> <span class="quantidade-pedido">{{ requisicao.quantidade|default_if_none:"0" }}</span> | <strong>Qt. Ent.:</strong> <span class="quantidade-entregue">{{ requisicao.qt_entregue|default_if_none:"0" }}</span> | <strong>Data:</strong> {{ requisicao.dt_requisicao|date:"d/m/y H:i"|default_if_none:"N/A" }}</p>
+
+                                    {% if requisicao.fluxos.all %}
+                                        <div class="section-title" style="margin-left: 0; font-size: 7.5pt; border-bottom: none; margin-bottom: 1px;">Fluxo:</div>
+                                        {% for fluxo in requisicao.fluxos.all %}
+                                            <div class="fluxo-details">
+                                                <p>
+                                                    <strong>Processo:</strong> {{ fluxo.processo.nome|default:"N/A" }}
+                                                    {% if fluxo.dt_processo %} ({{ fluxo.dt_processo|date:"d/m/y H:i" }}){% endif %}
+                                                    - <strong>Enc.:</strong> {% if fluxo.encerrado %}Sim{% else %}Não{% endif %}
+                                                </p>
+                                            </div>
+                                        {% empty %}
+                                             <p style="font-size:7pt; font-style:italic; margin-left:10px;">Sem etapas de fluxo.</p>
+                                        {% endfor %}
+                                    {% else %}
+                                        <p style="font-size:7pt; font-style:italic; margin-left:10px;">Sem fluxo principal.</p>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <p style="font-style: italic; font-size:7.5pt; margin-top:5px;">Sem requisições associadas.</p>
+                        {% endif %}
+                    </div>
+                    {% if not forloop.last %}<hr style="border-top: 1px dashed #ccc; margin: 10px 0;">{% endif %}
+                {% endfor %}
+            </div>
+        {% empty %}
+            <p style="text-align: center; font-weight: bold;">Nenhum pedido selecionado ou encontrado.</p>
+        {% endfor %}
+    </div>
+</body>
+</html>
