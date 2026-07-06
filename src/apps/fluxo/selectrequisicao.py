@@ -263,15 +263,15 @@ class SelectRequisicao(object):
                         if pc not in pcs_:
                             pcs_.append(pc)   
                             for obj in rows:
-                                print(obj[3])
-                                print(obj[4])
+                                # print(obj[3])
+                                # print(obj[4])
 
                                 metragem_pallet = (
                                     ((float(obj[3])/10.764)/obj[4]) if obj[4] > 0 else obj[3]
                                 )
 
                                 metros_pallet.append(metragem_pallet * int(pc))
-
+            
                 req_date.append(sum(metros_pallet))
 
                 # ✅ ALTERAÇÃO MÍNIMA: adiciona campo setor
@@ -287,7 +287,7 @@ class SelectRequisicao(object):
                                             lote = excluded.lote,
                                             artigo = excluded.artigo,
                                             quantidade = excluded.quantidade,
-                                            ficha = excluded.ficha,
+                                            obs = excluded.ficha,
                                             fulao = excluded.fulao,
                                             modificado = excluded.modificado,
                                             encerrado = excluded.encerrado,
@@ -300,7 +300,7 @@ class SelectRequisicao(object):
                                             lote != excluded.lote OR
                                             artigo != excluded.artigo OR
                                             quantidade != excluded.quantidade OR
-                                            ficha != excluded.ficha OR
+                                            obs != excluded.ficha OR
                                             fulao != excluded.fulao OR
                                             modificado != excluded.modificado OR
                                             encerrado != excluded.encerrado OR

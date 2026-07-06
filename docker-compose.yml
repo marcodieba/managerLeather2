@@ -2,7 +2,7 @@ services:
   redis:
     image: redis:latest
     ports:
-      - "7379:7379"
+      - "7379:6379" # Exposto na 7379 para a sua máquina, mas o Docker usa a 6379 internamente
     volumes:
       - redis_data:/data
     restart: always
@@ -24,6 +24,34 @@ services:
     depends_on:
       - redis
     restart: always
+
+  # --- NOVOS SERVIÇOS DO CELERY ---
+  celery_worker:
+    build: .
+    image: my_django_app:latest
+    command: celery -A core.leatherManager worker --loglevel=info
+    env_file:
+      - ./docker.env
+    volumes:
+      - ./src:/srv:delegated
+    depends_on:
+      - redis
+      - web
+    restart: always
+
+  celery_beat:
+    build: .
+    image: my_django_app:latest
+    command: celery -A core.leatherManager beat --loglevel=info
+    env_file:
+      - ./docker.env
+    volumes:
+      - ./src:/srv:delegated
+    depends_on:
+      - redis
+      - web
+    restart: always
+  # --------------------------------
 
   nginx:
     image: nginx:latest

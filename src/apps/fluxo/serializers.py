@@ -3,25 +3,27 @@ from .models import Processo, Requisicao, FluxoRequisicao, Operador
 from datetime import datetime
 from src.apps.pedido.models import Pedido
 
-
-class OperadorSerializer(serializers.ModelSerializer):
-    # Puxa os nomes reais em vez de apenas os IDs
-    nome_processo = serializers.CharField(source='processo.nome', read_only=True)
-    nome_usuario = serializers.CharField(source='usuario.username', read_only=True) # Pode trocar por 'usuario.first_name' se preferir
-
+# 1º - Definimos o ProcessoSerializer (para que os outros o possam usar)
+class ProcessoSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Operador
-        fields = ['id', 'nome_usuario', 'nome_processo']
+        model = Processo
+        fields = ['id', 'nome']
 
+# 2º - Definimos o PedidoSerializer
 class PedidoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pedido
         fields = ['id', 'cliente', 'artigo', 'quantidade']
 
-class ProcessoSerializer(serializers.ModelSerializer):
+# 3º - Agora sim, o OperadorSerializer já pode usar o ProcessoSerializer sem dar erro!
+class OperadorSerializer(serializers.ModelSerializer):
+    nome_usuario = serializers.CharField(source='usuario.username', read_only=True)
+    # Traz a lista completa de processos que o operador tem acesso
+    processos = ProcessoSerializer(many=True, read_only=True)
+
     class Meta:
-        model = Processo
-        fields = ['id', 'nome']
+        model = Operador
+        fields = ['id', 'nome_usuario', 'processos']
 
 class FluxoRequisicaoSerializer(serializers.ModelSerializer):
     processo = serializers.PrimaryKeyRelatedField(queryset=Processo.objects.all())  # Espera apenas o ID

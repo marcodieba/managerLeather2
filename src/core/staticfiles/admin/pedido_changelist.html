@@ -1,0 +1,44 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+
+{% block content %}
+<style>
+    .action-buttons a {
+        margin-right: 5px;
+    }
+</style>
+
+{{ block.super }}
+
+<script>
+    function executarAcao(url) {
+        window.location.href = url;
+    }
+</script>
+
+<table class="adminlist table table-striped">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Código</th>
+            <th>Artigo</th>
+            <th>Ações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for obj in cl.result_list %}
+        <tr>
+            <td>{{ obj.id }}</td>
+            <td>{{ obj.cd_requisicao }}</td>
+            <td>{{ obj.artigo }}</td>
+            <td class="action-buttons">
+                <a href="{% url 'imprimir_rendimento' %}?ids={{ obj.id }}&tipo=rendimento" class="button">🖨️ Rendimento</a>
+                <a href="{% url 'imprimir_rendimento' %}?ids={{ obj.id }}&tipo=fluxograma" class="button">🖨️ Fluxograma</a>
+                <a href="{% url 'imprimir_rendimento' %}?ids={{ obj.id }}&tipo=custo&cd_requisicao={{ obj.cd_requisicao }}" class="button">🖨️ Custo</a>
+                <a href="{% url 'imprimir_rendimento' %}?ids={{ obj.id }}&tipo=fluxo_detalhado" class="button">🖨️ Detalhado</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,57 +1,103 @@
+```django
 {% extends "admin/change_list.html" %}
 {% load static %}
 {% load i18n %}
 
 {% block object-tools %}
     {{ block.super }}
-    <form id="action-form" method="post" action="" style="margin-top: 10px;">
-        {% csrf_token %}
-        <input type="hidden" name="action" id="action-field">
-        <input type="hidden" name="select_across" value="0">
-        {% for obj in cl.result_list %}
-            <input type="checkbox" class="action-checkbox" name="_selected_action" value="{{ obj.pk }}" style="display:none;">
-        {% endfor %}
-        <div style="margin-bottom: 15px;">
-            <a class="button btn btn-warning" href="{% url 'ordem_servico_page' %}" class="addlink">
-                {% trans 'Cálculo de OS' %}
-            </a>
-            
-            <a href="/admin/fluxo/requisicao/executar-selectrequisicao/" class="button btn btn-success">
-                🔄 Atualizar Requisições
-            </a>
-            
-            <a href="{% url 'resumo_lotes' %}" target="_blank" class="button" style="background-color: #007BFF; color: white; margin-right: 5px;">
-                📊 Resumo de Lotes Ativos
-            </a>
-            
-            <button type="submit" onclick="setActionAndSubmit('imprimir_fluxograma')" class="button btn btn-secondary">🖨️ Fluxograma</button>
-            <button type="submit" onclick="setActionAndSubmit('imprimir_fluxo_detalhado')" class="button btn btn-secondary">🖨️ Fluxo Detalhado</button>
-        </div>
-    </form>
-{% endblock %}
 
-{% block content_title %}
-    {{ block.super }}
-    <div style="margin-top: 15px; margin-bottom: 15px;">
-        
+    <div style="margin-top:10px;margin-bottom:15px;">
+
+        <a class="button btn btn-warning"
+           href="{% url 'ordem_servico_page' %}">
+            {% trans "Cálculo de OS" %}
+        </a>
+
+        <a href="/admin/fluxo/requisicao/executar-selectrequisicao/"
+           class="button btn btn-success">
+            🔄 Atualizar Requisições
+        </a>
+
+        <a href="{% url 'resumo_lotes' %}"
+           target="_blank"
+           class="button btn btn-secondary"
+           style="background:#007BFF;color:#fff;">
+            📊 Resumo de Lotes Ativos
+        </a>
+
+        <button type="button"
+                class="button btn btn-secondary"
+                onclick="executarAction('imprimir_fluxograma')">
+            🖨️ Fluxograma
+        </button>
+
+        <button type="button"
+                class="button btn btn-secondary"
+                onclick="executarAction('imprimir_fluxo_detalhado')">
+            🖨️ Fluxo Detalhado
+        </button>
+
     </div>
+
 {% endblock %}
 
 {% block extrahead %}
-    {{ block.super }}
-    <script>
-        function setActionAndSubmit(actionName) {
-            // Preenche os checkboxes ocultos com os que estão marcados no form principal
-            let checkboxes = document.querySelectorAll('input[name="_selected_action"]:not([type="hidden"])');
-            let selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+{{ block.super }}
 
-            // Copia os valores para os checkboxes do formulário customizado
-            document.querySelectorAll('#action-form input.action-checkbox').forEach(cb => {
-                cb.checked = selected.includes(cb.value);
-            });
+<script>
 
-            // Define qual ação será executada
-            document.getElementById("action-field").value = actionName;
-        }
-    </script>
+function executarAction(nomeAction){
+
+    const form = document.getElementById("changelist-form");
+
+    if(!form){
+        alert("Não foi encontrado o formulário do Django Admin.");
+        return;
+    }
+
+    // Procura o select de actions (topo ou rodapé)
+    let actionSelect = document.querySelector('select[name="action"]');
+
+    if(!actionSelect){
+        actionSelect = document.querySelectorAll('select[name="action"]')[0];
+    }
+
+    if(!actionSelect){
+        alert("Não foi encontrado o campo de actions.");
+        return;
+    }
+
+    actionSelect.value = nomeAction;
+
+    // Procura o botão oficial "Executar"
+    let submitButton = form.querySelector('button[name="index"]');
+
+    if(!submitButton){
+        submitButton = form.querySelector('input[name="index"]');
+    }
+
+    if(!submitButton){
+        alert("Não foi encontrado o botão de execução do admin.");
+        return;
+    }
+
+    // Envia para nova aba
+    form.target = "_blank";
+
+    submitButton.click();
+
+    // Volta ao comportamento padrão
+    setTimeout(function(){
+
+        form.target = "";
+
+        window.location.reload();
+
+    },800);
+
+}
+
+</script>
+
 {% endblock %}
+```

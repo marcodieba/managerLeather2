@@ -303,7 +303,7 @@ class RequisicaoAdmin(admin.ModelAdmin):
     
     list_display = ('cd_requisicao','data_criacao_formatada', 'listar_pedido', 'fulao', 'lote', 'pallet','quantidade','qt_mt','artigo', 'get_artigos')
     list_select_related = True
-    search_fields = ('cd_requisicao', 'lote', 'artigo')
+    search_fields = ('cd_requisicao', 'lote', 'artigo', 'fulao')
     list_filter = [TemPedidoFilter]
     ordering = ('-dt_requisicao',)
     actions = [update_requisicao, requisicao_sea, imprimir_rendimento, imprimir_fluxograma, imprimir_custo, imprimir_fluxo_detalhado]
@@ -367,5 +367,17 @@ class RequisicaoAdmin(admin.ModelAdmin):
 
 @admin.register(Operador)
 class OperadorAdmin(admin.ModelAdmin):
-    list_display = ('usuario', 'processo')
-    search_fields = ('usuario__username', 'usuario__first_name', 'processo__nome')
+    list_display = ("usuario", "listar_processos")
+    search_fields = (
+        "usuario__username",
+        "usuario__first_name",
+        "processos__nome",
+    )
+    filter_horizontal = ("processos",)
+
+    def listar_processos(self, obj):
+        return ", ".join(
+            obj.processos.values_list("nome", flat=True)
+        )
+
+    listar_processos.short_description = "Processos"

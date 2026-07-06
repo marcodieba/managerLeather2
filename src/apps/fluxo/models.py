@@ -42,7 +42,7 @@ class RoteiroArtigo(models.Model):
     
     class Meta:
         ordering = ['ordem']
-        unique_together = ('artigo', 'ordem') # Evita repetir o mesmo processo seguidamente no roteiro
+        # unique_together = ('artigo', 'ordem') # Evita repetir o mesmo processo seguidamente no roteiro
         verbose_name = 'Roteiro do Artigo'
         verbose_name_plural = 'Roteiros dos Artigos'
 
@@ -312,12 +312,20 @@ from django.contrib.auth.models import User
 
 class Operador(models.Model):
     # Liga este perfil a um usuário real do Django
-    usuario = models.OneToOneField(User, on_delete=models.CASCADE, related_name='operador')
-    
-    # Liga o usuário ao setor onde ele trabalha
-    processo = models.ForeignKey(Processo, on_delete=models.RESTRICT, verbose_name="Setor de Trabalho")
+    usuario = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='operador'
+    )
+
+    # Um operador pode participar de vários processos
+    processos = models.ManyToManyField(
+        Processo,
+        verbose_name="Processos de Trabalho",
+        related_name="operadores"
+    )
 
     def __str__(self):
-        return f"{self.usuario.first_name or self.usuario.username} - {self.processo.nome}"
+        return self.usuario.first_name or self.usuario.username
 
 

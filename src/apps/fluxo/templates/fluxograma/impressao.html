@@ -24,7 +24,7 @@
 
         h1 {
             color: #377ba8;
-            text-align: center;
+
             margin-bottom: 20px;
         }
 
@@ -185,7 +185,7 @@
 
     .header-info > div {
         padding: 5px; /* Reduzido o padding interno dos divs do cabeçalho */
-        font-size: 11px; /* Levemente reduzido a fonte para caber mais */
+        font-size: 20px; /* Levemente reduzido a fonte para caber mais */
         flex: 1 1 auto; /* Permite que os itens se ajustem flexivelmente */
         min-width: 100px; /* Adicionado um min-width para evitar que fiquem minúsculos */
         max-width: 100%; /* Garante que não transborde */
@@ -196,7 +196,7 @@
     .observacoes,
     .instrucoes {
         padding: 8px; /* Reduzido o padding */
-        font-size: 11px; /* Reduzido a fonte */
+        font-size: 20px; /* Reduzido a fonte */
         margin-bottom: 8px; /* Ajustado a margem inferior */
         page-break-inside: avoid;
     }
@@ -204,7 +204,8 @@
     
 
     table {
-        font-size: 11px; /* Reduzido a fonte da tabela */
+        font-size: 14px; /* Reduzido a fonte da tabela */
+        font-weight: bold;
         width: 100%; /* Fundamental para a tabela se ajustar */
         table-layout: fixed; /* Ajuda a distribuir as colunas igualmente */
     }
@@ -239,10 +240,15 @@
         margin-left: 0.8cm; /* Reduzindo um pouco as margens da página para dar mais espaço */
         
     }
+    .container{
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
 }
     </style>
 </head>
 <body>
+    {% for item in objetos %}
     <div class="container">
         <div class="no-print" style="text-align: right; margin-bottom: 10px;">
             <button onclick="window.print()" style="
@@ -257,25 +263,32 @@
                 🖨️ Imprimir
             </button>
         </div>
-        <div class="imgs">
-            <img src="{% static 'imgs/logo.png' %}" width="150" alt="Logo">
-            
-            <img src="{{ item.get_qrcode_base64 }}" alt="QR Code {{ item.cd_requisicao }}" width="100" height="100" style="margin-left: 20px;">
-                        
-            <h1>FLUXOGRAMA DE PRODUÇÃO - SEA</h1>
+        <div style="text-align: left;">
+            <img style="width: 200px; 
+            height: 70px; 
+            object-fit: cover;
+            " src="{% static 'imgs/logo.png' %}" width="180" alt="Logo">
         </div>
-        {% for item in objetos %}
-        <img src="{{ item.get_qrcode_base64 }}" alt="QR Code {{ item.cd_requisicao }}" width="100" height="100" style="margin-left: 20px;">
-
+        <div style="text-align: left;">
+                        
+            <h1>FLUXOGRAMA DE PRODUÇÃO - SEA </h1>
+        </div>
+        
+        
+        <div style="text-align: right;
+        display: flow;
+        margin: -140px 6px 6px;">
+            <img src="{{ item.get_qrcode_base64 }}" alt="QR Code {{ item.cd_requisicao }}"  style="width: 150px; margin-left: 20px;">
+        </div>
             {% if item.pedido_links.select_related %}
                 {%  for link in item.pedido_links.select_related %}
                     <div class="header-info">
                         <div><strong>CLIENTE:</strong> {{link.pedido.cliente}}</div>
                         <div><strong>Nº PEDIDO:</strong>{{link.pedido.nr_contract}}</div>
                     </div>
-                    <div class="header-info">
-                        <div><strong>ARTIGO:</strong> {{link.pedido.artigo}}</div>
-                    </div>
+                    <!-- <div class="header-info">
+                        <div><strong>COR:</strong> {{item.cor}}</div>
+                    </div> -->
                     <div class="header-info">
                         <div><strong>RQ:</strong> {{ item.cd_requisicao }}</div>
                         <div><strong>FULÃO:</strong> {{item.fulao}}</div>
@@ -286,16 +299,13 @@
                         <div><strong>CLASSE:</strong>{{link.pedido.selecao}}</div>
                         <div><strong>ESPES. FINAL:</strong> {{link.pedido.espessura}}</div>
                         <div><strong>QUANTIDADE:</strong>{{item.quantidade}}</div>
-                        <div><strong>COR:</strong> {{item.cor}}</div>
+                        <div><strong>ARTIGO:</strong> {{link.pedido.artigo}}</div>
                         
                     </div>
 
-                    <div class="ficha-info">
-                        <strong>FICHA:</strong> {{item.ficha}}
-                    </div>
                     <div class="observacoes">
-                        <strong>OBSERVAÇÕES:</strong> 
-                        <h1>{{ item.obs }}</h1>
+                        
+                        <strong>OBSERVAÇÕES:</strong> {%if item.obs %}{{ item.obs }}{% endif %}
          
                     </div>
 
@@ -314,16 +324,12 @@
                     <div><strong>CLASSE:</strong> {{item.classe}}</div>
                     <div><strong>Nº PEDIDO:</strong>{{item.nr_pedido}}</div>
                     <div><strong>ESPES. FINAL:</strong> {{item.espessura}}</div>
-                    <div><strong>ARTIGO:</strong> {{item.artigo|truncatewords:3}}</div>
+                    <!-- <div><strong>COR:</strong> {{item.cor}}</div> -->
                     <div><strong>QUANTIDADE:</strong>{{item.quantidade}}</div>
-                    <div><strong>COR:</strong> {{item.cor}}</div>
-                </div>
-
-                <div class="ficha-info">
-                    <strong>FICHA:</strong> {{item.ficha}}
+                    <div><strong>ARTIGO:</strong> {{item.artigo}}</div>
                 </div>
                 <div class="observacoes">
-                    <strong>OBSERVAÇÕES:</strong> {{ item.obs }}
+                    <strong>OBSERVAÇÕES:</strong> {%if item.obs %}{{ item.obs }}{% endif %}
      
                 </div>
                 {% endif %}
@@ -335,17 +341,17 @@
                     <thead>
                         <tr>
                             <th>OPERAÇÃO</th>
-                            <th>REGULAGENS/OBS</th>
-                            <th>DATA</th>
-                            <th>RESPONSÁVEL</th>
+                            <th >REGULAGENS/OBS</th>
+                            <th >DATA</th>
+                            <th>RESPONSAVEL</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% if item.artigo_padrao %}
                             {% for roteiro in item.artigo_padrao.roteiros.all %}
                             <tr>
-                                <td>{{ roteiro.ordem }}º - {{ roteiro.processo.nome }}</td>
-                                <td>{{ roteiro.regulagem }}</td>
+                                <td>{{ roteiro.processo.nome }}</td>
+                                <td>{% if roteiro.regulagem %} {{ roteiro.regulagem }} {% endif%}</td>
                                 <td></td>
                                 <td></td>
                             </tr>
@@ -361,12 +367,13 @@
                     </tbody>
                 </table>
             </div>
-        {% endfor %}
+        
         <div class="instrucoes">
             <strong>SEPARAR ATENTAMENTE AS FICHAS</strong>
             <p><strong>PRECISAMOS QUE TODOS COOPEREM PARA A RASTREA BILADADE DO COURO;</strong></p>
             <p><strong>SENDO ASSIM DEIXANDO A PLACA NO DEVIDO LUGAR // OU SEJA JUNTO AO LOTE/COURO...</strong></p>
         </div>
     </div>
+    {% endfor %}
 </body>
 </html>

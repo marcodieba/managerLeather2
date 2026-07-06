@@ -267,79 +267,59 @@ class FluxoRequisicaoViewSet(viewsets.ModelViewSet):
 def ler_qrcode_movimentacao(request):
     cd_requisicao = request.data.get('cd_requisicao')
     operador_id = request.data.get('operador_id') 
+    
+    # ⚠️ NOVIDADE: Como o operador tem várias máquinas, o frontend precisa dizer qual ele está a usar
+    processo_id = request.data.get('processo_id') 
+    
     qtd_recebida = int(request.data.get('quantidade', 0))
     motivo_diferenca = request.data.get('motivo_diferenca', 'AINDA_EM_PROCESSO')
 
-    if not cd_requisicao or not operador_id or qtd_recebida <= 0:
+    if not cd_requisicao or not operador_id or not processo_id or qtd_recebida <= 0:
         return Response({'sucesso': False, 'erro': 'Dados incompletos ou quantidade inválida.'}, status=400)
 
     try:
         requisicao = Requisicao.objects.get(cd_requisicao=cd_requisicao)
         operador = Operador.objects.get(id=operador_id)
-        processo_atual = operador.processo 
+        processo_atual = Processo.objects.get(id=processo_id)
     except Requisicao.DoesNotExist:
         return Response({'sucesso': False, 'erro': 'Requisição não encontrada.'}, status=404)
     except Operador.DoesNotExist:
-        return Response({'sucesso': False, 'erro': 'Operador não encontrado. Faça login novamente.'}, status=404)
+        return Response({'sucesso': False, 'erro': 'Operador não encontrado.'}, status=404)
+    except Processo.DoesNotExist:
+        return Response({'sucesso': False, 'erro': 'Processo não encontrado.'}, status=404)
+
+    # Valida se o operador tem o processo no seu perfil
+    if not operador.processos.filter(id=processo_atual.id).exists():
+        return Response({'sucesso': False, 'erro': f'O operador não tem permissão para atuar no setor: {processo_atual.nome}.'}, status=403)
 
     agora = timezone.now()
 
     # --------------------------------------------------------------------------------
-    # 1. VALIDAÇÃO DE ROTEIRO DE FERRO (Hard-Lock)
+    # 1. RASTREABILIDADE LIVRE (Sem Bloqueio de Roteiro Fixo)
+    # O sistema procura onde estão os lotes "em aberto" para os conseguir consumir
     # --------------------------------------------------------------------------------
-    if not requisicao.artigo_padrao:
-         return Response({'sucesso': False, 'erro': '⚠️ Esta requisição não tem um Artigo Genérico vinculado. Impossível validar a receita de produção.'}, status=400)
-         
-    roteiros = list(RoteiroArtigo.objects.filter(artigo=requisicao.artigo_padrao).order_by('ordem'))
-    if not roteiros:
-         return Response({'sucesso': False, 'erro': f'⚠️ O artigo "{requisicao.artigo_padrao.nome}" não possui um roteiro cadastrado no sistema.'}, status=400)
-
-    idx_atual = -1
-    for i, r in enumerate(roteiros):
-        if r.processo.id == processo_atual.id:
-            idx_atual = i
-            break
-    
-    # Se o operador está num setor que não pertence à receita deste couro:
-    if idx_atual == -1:
-        passos_roteiro = " ➔ ".join([r.processo.nome for r in roteiros])
-        return Response({'sucesso': False, 'erro': f'🚫 Erro de Rota: O setor "{processo_atual.nome}" não faz parte da receita deste couro!\nRota Exigida: {passos_roteiro}'}, status=400)
-
-    # Se o operador está no primeiro passo da fábrica (Onde o lote nasce):
-    if idx_atual == 0:
-        return Response({'sucesso': False, 'erro': f'🚫 O setor "{processo_atual.nome}" é o 1º passo. O lote inicia aqui automaticamente, não é necessário puxar de outro setor.'}, status=400)
-
-    # O ÚNICO setor autorizado de onde podemos puxar peças:
-    processo_anterior = roteiros[idx_atual - 1].processo
-
-    # --------------------------------------------------------------------------------
-    # 2. BLOQUEIO CIRÚRGICO E RASTREABILIDADE TOTAL (O "Algo Melhor")
-    # --------------------------------------------------------------------------------
-    fluxos_para_consumir = list(requisicao.fluxos.filter(encerrado=False, processo=processo_anterior).order_by('dt_processo', 'id'))
+    fluxos_para_consumir = list(requisicao.fluxos.filter(encerrado=False).order_by('dt_processo', 'id'))
     total_disponivel = sum(f.quantidade for f in fluxos_para_consumir if f.quantidade)
     
-    # Se tentar puxar mais do que a máquina de trás tem pronto:
+    if total_disponivel == 0:
+        return Response({'sucesso': False, 'erro': 'Atenção: Não há peças disponíveis em aberto nesta requisição.'}, status=400)
+
+    # Se o operador tentar puxar mais peças do que o lote total disponível
     if qtd_recebida > total_disponivel:
-        # O sistema "dedura" onde as peças ficaram presas para avisar o operador
-        fluxos_atrasados = requisicao.fluxos.filter(encerrado=False).exclude(processo=processo_anterior)
         resumo_atrasados = {}
-        for f in fluxos_atrasados:
+        for f in fluxos_para_consumir:
             nome_proc = f.processo.nome if f.processo else "Desconhecido"
             resumo_atrasados[nome_proc] = resumo_atrasados.get(nome_proc, 0) + (f.quantidade or 0)
         
         texto_atrasados = " | ".join([f"{qtd} peças em {proc}" for proc, qtd in resumo_atrasados.items() if qtd > 0])
+        msg_erro = f'❌ Você tentou puxar {qtd_recebida} peças, mas só existem {total_disponivel} peças livres na fábrica para este lote.\n\n📍 Onde elas estão: [{texto_atrasados}]'
         
-        msg_erro = f'❌ Bloqueio de Segurança: O setor anterior ({processo_anterior.nome}) só tem {total_disponivel} peças prontas. Você tentou puxar {qtd_recebida}.'
-        
-        if texto_atrasados:
-            msg_erro += f'\n\n🔎 Rastreador: O restante do lote está retido em:\n[{texto_atrasados}]'
-            
         return Response({'sucesso': False, 'erro': msg_erro}, status=400)
 
     qtd_a_consumir = qtd_recebida
 
     # --------------------------------------------------------------------------------
-    # 3. CONSUMO INTELIGENTE E DIVISÃO DE LOTE (Mantido, pois está perfeito)
+    # 2. CONSUMO INTELIGENTE E DIVISÃO DE LOTE (MANTIDO E FUNCIONA EM QUALQUER ROTA)
     # --------------------------------------------------------------------------------
     for fluxo in fluxos_para_consumir:
         if qtd_a_consumir <= 0:
@@ -370,7 +350,7 @@ def ler_qrcode_movimentacao(request):
                 proc_nl, _ = Processo.objects.get_or_create(nome="🔄 SEPARADO P/ NOVO LOTE")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
             else:
-                # Mantém os couros atrasados seguros na máquina anterior
+                # Mantém os couros atrasados seguros na máquina anterior onde já estavam
                 FluxoRequisicao.objects.create(
                     requisicao=requisicao,
                     processo=fluxo.processo,
@@ -383,7 +363,7 @@ def ler_qrcode_movimentacao(request):
             break
 
     # --------------------------------------------------------------------------------
-    # 4. CRIA A NOVA ENTRADA NO SETOR ATUAL
+    # 3. CRIA A NOVA ENTRADA NO SETOR ATUAL
     # --------------------------------------------------------------------------------
     FluxoRequisicao.objects.create(
         requisicao=requisicao,
@@ -395,7 +375,7 @@ def ler_qrcode_movimentacao(request):
 
     return Response({
         'sucesso': True,
-        'mensagem': f'✅ Entrada de {qtd_recebida} peças registada em {processo_atual.nome}!'
+        'mensagem': f'✅ Entrada de {qtd_recebida} peças registada com sucesso no setor de {processo_atual.nome}!'
     })
 
 
