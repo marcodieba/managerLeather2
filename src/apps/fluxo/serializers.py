@@ -40,7 +40,7 @@ class RequisicaoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Requisicao
         # 🌟 CORRIGIDO: Trocamos 'pedido' por 'nr_pedido' e 'qt_entregue' por 'exp_qt'
-        fields = ['id', 'data', 'cd_requisicao', 'artigo', 'nr_pedido', 'quantidade', 'lote', 'exp_qt', 'dt_requisicao', 'modificado', 'encerrado', 'fluxos']
+        fields = ['id', 'data', 'cd_requisicao', 'artigo', 'nr_pedido', 'quantidade', 'lote', 'dt_requisicao', 'modificado', 'encerrado', 'fluxos']
 
     def update(self, instance, validated_data):
         fluxos_data = validated_data.pop('fluxos', [])
