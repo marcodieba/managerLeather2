@@ -138,7 +138,6 @@ class SelectRequisicao(object):
         return cursor.fetchall()
     
     def post_requisicao(self):
-        # AQUI ESTÁ A MUDANÇA: O 'transaction.atomic()' do Django gere os blocos BEGIN/COMMIT para não corromper.
         with transaction.atomic():
             with connection.cursor() as cursorsqlite:
                 query_set = self.requisicao()
@@ -169,9 +168,7 @@ class SelectRequisicao(object):
 
                     req_date = [date_now, cd_req[0], cd_req[1].strftime('%Y-%m-%d %H:%M:%S'), cd_req[2], cd_req[3], cd_req[9], cd_req[6], cd_req[7], date_now, 0]
 
-                    # ✅ SEU BLOCO (NÃO FOI ALTERADO)
                     nome_formulacao = str(cd_req[3]).strip().upper()
-
                     prefixo = nome_formulacao[:3]
 
                     if prefixo == 'CUR':
@@ -181,10 +178,11 @@ class SelectRequisicao(object):
                     else:
                         setor = 'REC'
 
+                    # CORREÇÃO: ? passa a %s
                     cursorsqlite.execute("""
                         SELECT cd_requisicao, artigo, dt_requisicao, lote, quantidade, qt_mt 
                         FROM fluxo_requisicao 
-                        WHERE cd_requisicao = ? 
+                        WHERE cd_requisicao = %s 
                     """, (cd_req[0],))
 
                     if req_date[6] == 'NULL':
@@ -203,6 +201,7 @@ class SelectRequisicao(object):
 
                     for obj in resultado_remv_refilo:
 
+                        # (O SQL Server continua com f-string normalmente)
                         cursor.execute(f"""
                             SELECT 
                                 ee_main.Codigo,
@@ -241,12 +240,13 @@ class SelectRequisicao(object):
                     
                     req_date.append(sum(metros_pallet))
 
+                    # CORREÇÃO: ? passa a %s
                     cursorsqlite.execute("""
                                     INSERT INTO fluxo_requisicao (
                                         data, cd_requisicao, dt_requisicao, lote, artigo, quantidade,
                                         ficha, fulao, modificado, encerrado, pallet, qt_mt, setor
                                     )
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     ON CONFLICT(cd_requisicao) DO UPDATE SET
                                         data = excluded.data,
                                         dt_requisicao = excluded.dt_requisicao,
@@ -275,8 +275,9 @@ class SelectRequisicao(object):
                                         setor != excluded.setor
                                 """, req_date + [setor])
 
+                    # CORREÇÃO: ? passa a %s
                     cursorsqlite.execute("""
-                        SELECT id FROM fluxo_requisicao WHERE cd_requisicao = ?
+                        SELECT id FROM fluxo_requisicao WHERE cd_requisicao = %s
                     """, (cd_req[0],))
                     row = cursorsqlite.fetchone()
 
@@ -285,7 +286,8 @@ class SelectRequisicao(object):
 
                     requisicao_id = row[0]
                     
-                    cursorsqlite.execute("SELECT id FROM fluxo_processo WHERE nome LIKE '%Recurtimento%' LIMIT 1")
+                    # CORREÇÃO: Parametrizando o LIKE para ser imune a quebras do Django
+                    cursorsqlite.execute("SELECT id FROM fluxo_processo WHERE nome LIKE %s LIMIT 1", ['%Recurtimento%'])
                     proc_row = cursorsqlite.fetchone()
                     if not proc_row:
                         cursorsqlite.execute("INSERT INTO fluxo_processo (nome) VALUES ('Recurtimento')")
@@ -296,12 +298,13 @@ class SelectRequisicao(object):
                     qtd_fluxo = req_date[5] if req_date[5] else 0
                     dt_fluxo = str(req_date[2]) if req_date[2] else date_now.strftime('%Y-%m-%d %H:%M:%S')
 
+                    # CORREÇÃO: ? passa a %s
                     cursorsqlite.execute("""
                         INSERT INTO fluxo_fluxorequisicao (requisicao_id, processo_id, quantidade, dt_processo, encerrado)
-                        SELECT ?, ?, ?, ?, 0
+                        SELECT %s, %s, %s, %s, 0
                         WHERE NOT EXISTS (
                             SELECT 1 FROM fluxo_fluxorequisicao
-                            WHERE requisicao_id = ? AND processo_id = ?
+                            WHERE requisicao_id = %s AND processo_id = %s
                         )
                     """, (requisicao_id, processo_id_recurtimento, qtd_fluxo, dt_fluxo, requisicao_id, processo_id_recurtimento))
 
@@ -328,39 +331,36 @@ class SelectRequisicao(object):
                                 artigo_encontrado_id = next(a[0] for a in todos_artigos if a[1] == matches[0])
 
                         if artigo_encontrado_id:
+                            # CORREÇÃO: ? passa a %s
                             cursorsqlite.execute("""
-                                UPDATE fluxo_requisicao SET artigo_padrao_id = ? WHERE id = ?
+                                UPDATE fluxo_requisicao SET artigo_padrao_id = %s WHERE id = %s
                             """, (artigo_encontrado_id, requisicao_id))
 
                     for nr_contrato in nr_pedidos:
-                        cursorsqlite.execute("SELECT id FROM pedido_pedido WHERE nr_contract = ?", (nr_contrato,))
+                        # CORREÇÃO: ? passa a %s
+                        cursorsqlite.execute("SELECT id FROM pedido_pedido WHERE nr_contract = %s", (nr_contrato,))
                         pedido_row = cursorsqlite.fetchone()
 
                         if pedido_row:
                             pedido_id = pedido_row[0]
+                            # CORREÇÃO: ? passa a %s
                             cursorsqlite.execute("""
                                 INSERT INTO pedido_pedidorequisicao (requisicao_id, pedido_id)
-                                SELECT ?, ?
+                                SELECT %s, %s
                                 WHERE NOT EXISTS (
                                     SELECT 1 FROM pedido_pedidorequisicao
-                                    WHERE requisicao_id = ? AND pedido_id = ?
+                                    WHERE requisicao_id = %s AND pedido_id = %s
                                 )
                             """, (requisicao_id, pedido_id, requisicao_id, pedido_id))
 
                     if refila:
                         processo_id = 10
+                        # CORREÇÃO: ? passa a %s
                         cursorsqlite.execute("""
                             INSERT INTO fluxo_refilo (requisicao_id, processo_id, qt_refila)
-                            SELECT ?, ?, ?
+                            SELECT %s, %s, %s
                             WHERE NOT EXISTS (
                                 SELECT 1 FROM fluxo_refilo
-                                WHERE requisicao_id = ? AND processo_id = ?
+                                WHERE requisicao_id = %s AND processo_id = %s
                             )
                         """, (requisicao_id, processo_id, refila[0], requisicao_id, processo_id))
-
-        # (Nota: As linhas connsqlite.commit() e cursorsqlite.close foram removidas
-        # porque o "with transaction.atomic()" e o "with connection.cursor()" 
-        # já cuidam do commit e do fechamento automático e em segurança)
-
-# Lembre-se: as três últimas linhas que rodavam o arquivo sozinhas 
-# foram removidas para não dar crash no Gunicorn.
