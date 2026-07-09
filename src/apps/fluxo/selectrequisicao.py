@@ -28,7 +28,7 @@ class SelectRequisicao(object):
 
     def requisicao(self):
         cursor = self.conexao()
-        cursor.execute(""" SELECT TOP 300
+        cursor.execute(""" SELECT TOP 15
                             Requisicao.Codigo,
                             Requisicao.Dt_Hr_Requisicao,
 
