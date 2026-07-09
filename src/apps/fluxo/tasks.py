@@ -7,7 +7,7 @@ from .selectfilter_lote import SelectFilterLote
 @shared_task
 def sync_requisicoes_task():
     sincronizador = SelectRequisicao()
-    sincronizador.executar()
+    sincronizador.post_requisicao() # <--- Corrigido para o nome exato da função
 
 @shared_task
 def sync_custos_task():
