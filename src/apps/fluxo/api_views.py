@@ -1,8 +1,10 @@
 # src/apps/fluxo/api_views.py
 
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth import logout
 from django.utils.timezone import is_aware, make_naive
 from django.db.models import Q
 from datetime import datetime, date
@@ -254,4 +256,27 @@ def api_calcular_ordem_servico(request):
             "metro": float(round(total_metro, 2)),
             "resultado": float(round(total_resultado, 2)),
         }
+    })
+
+
+@csrf_exempt
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def api_logout(request):
+    """Logs out the current authenticated user and clears the session."""
+    logout(request)
+    return Response({"detail": "Logout successful."})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_me(request):
+    """Returns the currently authenticated user's basic profile."""
+    user = request.user
+    return Response({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
     })

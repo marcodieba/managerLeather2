@@ -161,6 +161,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://192.168.20.5:5173",
+    "http://localhost:5173",
+]
+
 REST_FRAMEWORK = {
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',

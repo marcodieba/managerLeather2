@@ -32,8 +32,10 @@ urlpatterns = [
     # ---------------------------------------------------------
     # NOVAS APIS PARA O REACT
     # ---------------------------------------------------------
-    path('api/v1/busca-requisicao/', api_views.api_busca_requisicao, name='api_v1_busca_requisicao'),
-    path('api/v1/resumo-lotes/', api_views.api_resumo_lotes_ativos, name='api_v1_resumo_lotes'),
-    path('api/v1/relatorio-rendimento/', api_views.api_imprimir_rendimento, name='api_v1_imprimir_rendimento'),
-    path('api/v1/calcular-ordem-servico/', api_views.api_calcular_ordem_servico, name='api_v1_calcular_ordem_servico'),
+    path('v1/busca-requisicao/', api_views.api_busca_requisicao, name='api_v1_busca_requisicao'),
+    path('v1/resumo-lotes/', api_views.api_resumo_lotes_ativos, name='api_v1_resumo_lotes'),
+    path('v1/relatorio-rendimento/', api_views.api_imprimir_rendimento, name='api_v1_imprimir_rendimento'),
+    path('v1/calcular-ordem-servico/', api_views.api_calcular_ordem_servico, name='api_v1_calcular_ordem_servico'),
+    path('v1/auth/logout/', api_views.api_logout, name='api_v1_auth_logout'),
+    path('v1/auth/me/', api_views.api_me, name='api_v1_auth_me'),
 ]
