@@ -3,7 +3,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from . import api_views # <--- Novo ficheiro
+from . import api_views
 
 router = DefaultRouter()
 router.register(r'pedidos', views.PedidoViewSet)
@@ -36,6 +36,10 @@ urlpatterns = [
     path('v1/resumo-lotes/', api_views.api_resumo_lotes_ativos, name='api_v1_resumo_lotes'),
     path('v1/relatorio-rendimento/', api_views.api_imprimir_rendimento, name='api_v1_imprimir_rendimento'),
     path('v1/calcular-ordem-servico/', api_views.api_calcular_ordem_servico, name='api_v1_calcular_ordem_servico'),
+    
+    # ADICIONE ESTA LINHA EM FALTA ABAIXO: 👇
+    path('v1/auth/login/', api_views.api_login, name='api_v1_auth_login'),
+    
     path('v1/auth/logout/', api_views.api_logout, name='api_v1_auth_logout'),
     path('v1/auth/me/', api_views.api_me, name='api_v1_auth_me'),
 ]

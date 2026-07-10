@@ -242,6 +242,7 @@ def ordem_servico_page(request):
 class OperadorViewSet(viewsets.ModelViewSet):
     queryset = Operador.objects.all()
     serializer_class = OperadorSerializer
+    permission_classes = [AllowAny]
 
 class PedidoViewSet(viewsets.ModelViewSet):
     queryset = Pedido.objects.all()

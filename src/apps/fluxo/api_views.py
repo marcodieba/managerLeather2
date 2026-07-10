@@ -3,15 +3,17 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.authtoken.models import Token
 from django.views.decorators.csrf import csrf_exempt
-from django.contrib.auth import logout
+from django.contrib.auth import authenticate, logout
 from django.utils.timezone import is_aware, make_naive
 from django.db.models import Q
 from datetime import datetime, date
 from decimal import Decimal, InvalidOperation
 
-from .models import Requisicao
-from .serializers import RequisicaoSerializer
+from .models import Requisicao, Operador
+from .serializers import RequisicaoSerializer, OperadorSerializer
 from .views import OrdemServicoSQL, extrair_marca_couro
 from .select_custo_formula import custo_requisicao
 
@@ -258,25 +260,66 @@ def api_calcular_ordem_servico(request):
         }
     })
 
+# ============================================================
+# AUTENTICAÇÃO REST VIA TOKEN
+# ============================================================
 
-@csrf_exempt
-@api_view(['GET', 'POST'])
+@api_view(['POST'])
 @permission_classes([AllowAny])
-def api_logout(request):
-    """Logs out the current authenticated user and clears the session."""
-    logout(request)
-    return Response({"detail": "Logout successful."})
+def api_login(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
+
+    if not username or not password:
+        return Response({'erro': 'Usuário e senha são obrigatórios.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = authenticate(username=username, password=password)
+
+    if not user:
+        return Response({'erro': 'Credenciais inválidas.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    try:
+        operador = Operador.objects.get(usuario=user)
+    except Operador.DoesNotExist:
+        # Se for um superuser (gestor) que não tem perfil de Operador, permitimos o login
+        # mas retornamos apenas os dados básicos para não quebrar o React
+        token, _ = Token.objects.get_or_create(user=user)
+        return Response({
+            'token': token.key,
+            'operador': {
+                'id': user.id,
+                'nome_usuario': user.username,
+                'processos': []
+            }
+        }, status=status.HTTP_200_OK)
+
+    token, _ = Token.objects.get_or_create(user=user)
+    operador_data = OperadorSerializer(operador).data
+
+    return Response({
+        'token': token.key,
+        'operador': operador_data
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def api_me(request):
-    """Returns the currently authenticated user's basic profile."""
-    user = request.user
-    return Response({
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-    })
+    try:
+        operador = Operador.objects.get(usuario=request.user)
+        serializer = OperadorSerializer(operador)
+        return Response(serializer.data)
+    except Operador.DoesNotExist:
+        # Fallback para gestores sem perfil de operador
+        return Response({
+            'id': request.user.id,
+            'nome_usuario': request.user.username,
+            'processos': []
+        })
+
+@csrf_exempt
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def api_logout(request):
+    logout(request)
+    return Response({"detail": "Logout successful."})
