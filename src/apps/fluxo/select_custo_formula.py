@@ -90,6 +90,22 @@ def custo_requisicao(*args):
             LEFT OUTER JOIN Formulacao f ON f.Codigo = fe.Cd_Formulacao
             LEFT OUTER JOIN Requisicao r ON r.Cd_Formulacao = f.Codigo
             WHERE r.Codigo = {obj}
+            AND (
+                (
+                    CONVERT(NUMERIC(18, 5), r.Peso / CASE WHEN r.Pecas = 0 THEN 1 ELSE r.Pecas END) >= fp.Pm_Inicial
+                    AND CONVERT(NUMERIC(18, 5), r.Peso / CASE WHEN r.Pecas = 0 THEN 1 ELSE r.Pecas END) < fp.Pm_Final
+                )
+                OR fp.Pm_Inicial IS NULL
+                OR fp.Pm_Final IS NULL
+            )
+            AND (
+                (
+                    CONVERT(NUMERIC(18, 5), r.Peso / CASE WHEN r.Pecas = 0 THEN 1 ELSE r.Pecas END) >= fe.Pm_Inicial
+                    AND CONVERT(NUMERIC(18, 5), r.Peso / CASE WHEN r.Pecas = 0 THEN 1 ELSE r.Pecas END) < fe.Pm_Final
+                )
+                OR fe.Pm_Inicial IS NULL
+                OR fe.Pm_Final IS NULL
+            )
             AND p.Nome NOT LIKE 'agua%'
             ORDER BY fp.Etapa, fp.Ordem_Sequencial, p.Nome
         """)
@@ -114,6 +130,9 @@ def custo_requisicao(*args):
 
             cd_produto = item[1]
             nome_produto = item[2]
+            
+            # Salva o Custo Total do produto na lista para calcular o valor base da requisição depois
+            custo_original.append(item[8] or 0)
 
             produto, _ = Produto.objects.get_or_create(
                 cd_produto=cd_produto,
@@ -156,10 +175,10 @@ def custo_requisicao(*args):
 
                     if item[2] == str(adicional.produto) and str(adicional.produto) not in produto_lista:
 
-                        custo_real = round(
-                            (decimal.Decimal(adicional.adicional) / 100) * item[6],
+                        custo_real = float(round(
+                            (decimal.Decimal(adicional.adicional or 0) / 100) * decimal.Decimal(item[6] or 0),
                             2
-                        )
+                        ))
 
                         custo_adicional_lista.append(custo_real)
                         produto_lista.append(str(adicional.produto))
@@ -169,8 +188,8 @@ def custo_requisicao(*args):
                             custo_extra=custo_real
                         )
 
-        total_custo = round(sum(custo_original), 2)
-        peso = row[0][3] or 0
+        total_custo = round(float(sum(custo_original)), 2)
+        peso = float(row[0][3] or 0)
 
         if peso > 0 and total_custo > 0:
             custo_kg = total_custo / peso
@@ -179,13 +198,41 @@ def custo_requisicao(*args):
 
         print("CUSTO KG:", custo_kg)
 
+        # Calcula o Custo Real por M² (se a requisição já tiver expedido os metros)
+        req = Requisicao.objects.filter(cd_requisicao=obj).first()
+        m2_final = float(req.m2 or 0) if req else 0
+        qt_final = float(req.qt or 0) if req else 0
+
+        # Cálculos de Área Média
+        am_entrada = (float(req.qt_mt or 0) / float(req.quantidade)) if req and req.quantidade and req.quantidade > 0 else 0
+        exp_am_saida = (m2_final / qt_final) if qt_final > 0 else 0
+
+        custo_real_total = total_custo + float(sum(custo_adicional_lista))
+        custo_por_m2 = (custo_real_total / m2_final) if m2_final > 0 else 0
+
         Requisicao.objects.filter(cd_requisicao=obj).update(
             custo_requisicao_inicial=(total_custo / peso if peso > 0 else 0),
-            custo_requisicao=custo_kg + sum(custo_adicional_lista)
+            custo_requisicao=custo_kg + float(sum(custo_adicional_lista)),
+            rendimento_custo=custo_por_m2,
+            exp_m2=m2_final,
+            exp_qt=qt_final,
+            am=am_entrada,
+            exp_am=exp_am_saida,
+            rend=(m2_final / peso) if (peso > 0 and m2_final > 0) else 0
         )
+        
+        # Calcular M² Proporcional para Justificativas Dinâmicas
+        if req:
+            justificativas = req.justificativas_registadas.all()
+            total_justificado = sum(j.quantidade for j in justificativas)
+            if total_justificado > 0 and m2_final > 0:
+                for j in justificativas:
+                    # M2 proporcional = (Qt da justificativa / Qt Total) * M2 Final
+                    j.m2_proporcional = (j.quantidade / total_justificado) * m2_final
+                    j.save(update_fields=['m2_proporcional'])
 
         print(f'custo extra: {total_custo}')
-        print(f'custo real: {total_custo + sum(custo_adicional_lista)}')
+        print(f'custo real: {total_custo + float(sum(custo_adicional_lista))}')
 
         # ==============================
         # BLOCO ORIGINAL DE PRODUTOS
@@ -194,55 +241,48 @@ def custo_requisicao(*args):
 
         for item in row:
 
-            print(item[0:3])
-
             cd_produto = item[1]
             nome_produto = item[2]
 
-            try:
-                produto, _ = Produto.objects.get_or_create(
-                                                            cd_produto=cd_produto,
-                                                            defaults={
-                                                                "produto": nome_produto,
-                                                                "quantidade": 0,
-                                                                "estoque_anterior": 0,
-                                                                "contagem_fisica": 0,
-                                                                "em_transito": 0,
-                                                                "percentual": 0,
-                                                                "consumo_diario": 0,
-                                                                "ultimo_valor": 0
-                                                            }
-                                                        )
-
-            except Produto.DoesNotExist:
-                produto = Produto.objects.create(
-                                                cd_produto=cd_produto,
-                                                produto=nome_produto,
-
-                                                # novos campos (evita erro e mantém compatibilidade)
-                                                quantidade=0,
-                                                estoque_anterior=0,
-                                                contagem_fisica=0,
-                                                em_transito=0,
-                                                percentual=0,
-                                                consumo_diario=0,
-                                                ultimo_valor=0
-                                            )
-                print(f"Produto criado: {produto.produto}")
+            produto, _ = Produto.objects.get_or_create(
+                cd_produto=cd_produto,
+                defaults={
+                    "produto": nome_produto,
+                    "quantidade": 0,
+                    "estoque_anterior": 0,
+                    "contagem_fisica": 0,
+                    "em_transito": 0,
+                    "percentual": 0,
+                    "consumo_diario": 0,
+                    "ultimo_valor": 0
+                }
+            )
 
             custo = item[8] or 0
             adicional = item[6] or 0
             custo_real = round(item[5] or 0, 2)
             exp_am = (item[5] / item[4]) if item[4] else 0
 
-            CustoRequisicao.objects.filter(pk=obj).update(
-                custo=custo,
-                adicional=adicional,
-                custo_extra=custo_real,
-                exp_am=exp_am
-            )
+            # Cria ou atualiza o custo para a requisicao correta e o produto correto
+            for req in requisicoes:
+                # Calcula o rendimento real (M² / Peso Inicial) se os dados já existirem (da OS encerrada)
+                peso_inicial = item[3] or 0
+                m2_real = float(req.m2 or 0)
+                rendimento_real = (m2_real / float(peso_inicial)) if (peso_inicial > 0 and m2_real > 0) else 0
 
-            print(item)
+                CustoRequisicao.objects.update_or_create(
+                    requisicao=req,
+                    produto=produto,
+                    defaults={
+                        'custo': custo,
+                        'adicional': adicional,
+                        'custo_extra': custo_real,
+                        'exp_am': exp_am,
+                        'exp_m2': m2_real,
+                        'exp_qt': req.qt or 0,
+                        'rend': rendimento_real
+                    }
+                )
 
             lista_lote.append(item)
 

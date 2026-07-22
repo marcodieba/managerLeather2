@@ -31,6 +31,8 @@ urlpatterns = [
     path("api/v1/embarques/", api_views.api_embarques_list, name="api_v1_embarques"),
     path("api/v1/simulador-dados/", api_views.api_dados_simulador, name="api_v1_simulador_dados"),
 
+    path("api/v1/pedidos-internos/", api_views.api_pedidos_internos, name="api_v1_pedidos_internos"),
+
     # NOVAS APIS DE RELATÓRIOS COMPLEXOS PARA O REACT
     path("api/v1/relatorios/por-artigo/", api_views.api_relatorio_por_artigo, name="api_v1_relatorio_por_artigo"),
     path("api/v1/relatorios/por-data/", api_views.api_relatorio_por_data, name="api_v1_relatorio_por_data"),
@@ -42,4 +44,6 @@ urlpatterns = [
     path("api/v1/logistica/embarques-previstos/", api_views.api_listar_embarques_previstos, name="api_v1_listar_embarques_previstos"),
     path("api/v1/logistica/previsao/salvar/", api_views.api_salvar_previsao_logistica, name="api_v1_salvar_previsao_logistica"),
     path("api/v1/logistica/converter-previsao/", api_views.api_converter_previsao_para_embarque, name="api_v1_converter_previsao"),
+    
+    path("api/v1/dashboard-producao/", api_views.api_pedidos_dashboard_producao, name="api_pedidos_dashboard_producao"),
 ]

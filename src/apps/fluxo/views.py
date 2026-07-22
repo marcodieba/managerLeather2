@@ -6,8 +6,8 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
-from .models import Processo, Requisicao, FluxoRequisicao, Operador, RoteiroArtigo
-from .serializers import PedidoSerializer, ProcessoSerializer, RequisicaoSerializer, FluxoRequisicaoSerializer, OperadorSerializer
+from .models import Processo, Requisicao, FluxoRequisicao, Operador, RoteiroArtigo, Justificativa, RequisicaoJustificativa
+from .serializers import PedidoSerializer, ProcessoSerializer, RequisicaoSerializer, FluxoRequisicaoSerializer, OperadorSerializer, JustificativaSerializer
 from src.apps.pedido.models import Pedido
 from django.http import JsonResponse
 from django.shortcuts import render
@@ -19,9 +19,10 @@ from decimal import Decimal, InvalidOperation
 import pymssql
 
 
+# pyrefly: ignore [missing-import]
 from django.db.models import Q
 
-@staff_member_required
+# A view legado de impressão (agora liberada para abrir em nova aba pelo React)
 def imprimir_rendimento_view(request):
     from datetime import datetime, date
 
@@ -29,6 +30,14 @@ def imprimir_rendimento_view(request):
     tipo = request.GET.get("tipo", "padrao")
     ids = [int(i) for i in ids_str.split(",") if i.isdigit()]
     objetos = Requisicao.objects.filter(id__in=ids)
+
+    # 🚀 Processa os custos e o rendimento automaticamente antes de gerar o relatório
+    if tipo in ["rendimento", "custo"]:
+        cd_requisicoes = [str(req.cd_requisicao) for req in objetos]
+        if cd_requisicoes:
+            custo_requisicao(cd_requisicoes)
+            # Recarrega os objetos do banco pois o script atualizou os custos e os M2 finais!
+            objetos = Requisicao.objects.filter(id__in=ids)
 
     # 🌟 FUNÇÃO NOVA: Agora calcula em segundos para podermos somar no final
     def calcular_segundos(dt_inicio, dt_fim):
@@ -86,9 +95,57 @@ def imprimir_rendimento_view(request):
                     }
                 processos_ativos_dict[pid]['quantidade'] += (fluxo.quantidade or 0)
         
-        req.fluxos_com_tempo = fluxos_processados
-        req.processos_ativos_agrupados = list(processos_ativos_dict.values())
-        req.tempo_total_formatado = formatar_tempo(total_segundos_req)
+        # 🌟 CÁLCULOS DINÂMICOS PARA O TEMPLATE
+        # 1. Somatórias de Refilo / Percas
+        soma_kg = sum(refilo.qt_refila or 0 for refilo in req.refilos.all())
+        kg_blue_val = req.kg_blue if req.kg_blue else 1
+        soma_m2 = float(soma_kg) / float(kg_blue_val) if float(kg_blue_val) > 0 else 0
+        req_m2_val = req.m2 if req.m2 else 1
+        soma_perc = (soma_m2 / req_m2_val) * 100 if req_m2_val > 0 else 0
+        
+        # Cálculo da Quebra Global (% Dif) = 100 - (Saída / Entrada * 100)
+        entrada_m2 = float(req.qt_mt or 0)
+        saida_m2 = float(req.m2 or 0)
+        
+        if entrada_m2 > 0 and saida_m2 > 0:
+            # Se a saída for menor que a entrada (perda), a quebra será negativa
+            req.quebra_global_perc = round(((saida_m2 / entrada_m2) - 1) * 100, 2)
+        else:
+            req.quebra_global_perc = 0
+        
+        req.tota_perca_kg = soma_kg
+        req.tota_perca_m2 = round(soma_m2, 2)
+        req.tota_perca_perc = round(soma_perc, 2)
+
+        # 2. Custo Financeiro (Usando 42.00 fixo ou custo_requisicao se tiver)
+        valor_m2 = req.custo_requisicao_inicial if req.custo_requisicao_inicial else 42.00
+        req.financeiro_vl_m2 = valor_m2
+        req.financeiro_total = round(soma_m2 * float(valor_m2), 2)
+
+        # 3. Quebra de Processos (Aprovados / Reprovados)
+        processos_nomes = ["BLUE", "SECAGEM", "LIXADEIRA", "QUALIDADE", "MOLISSA"]
+        quebra = []
+        
+        for p_nome in processos_nomes:
+            # Tenta encontrar se houve refilo (perca) neste processo específico
+            refilo_processo = next((r for r in req.refilos.all() if r.processo and p_nome.upper() in r.processo.nome.upper()), None)
+            
+            p_kg = refilo_processo.qt_refila if refilo_processo and refilo_processo.qt_refila else 0
+            p_reprovado_m2 = float(p_kg) / float(kg_blue_val) if float(kg_blue_val) > 0 else 0
+            p_aprovado_m2 = req_m2_val - p_reprovado_m2
+            
+            p_reprovado_perc = (p_reprovado_m2 / req_m2_val) * 100 if req_m2_val > 0 else 0
+            p_aprovado_perc = (p_aprovado_m2 / req_m2_val) * 100 if req_m2_val > 0 else 0
+
+            quebra.append({
+                "nome": p_nome,
+                "total_lote": req_m2_val,
+                "aprovado_m2": round(p_aprovado_m2, 2),
+                "aprovado_perc": round(p_aprovado_perc, 2),
+                "reprovado_m2": round(p_reprovado_m2, 2),
+                "reprovado_perc": round(p_reprovado_perc, 2),
+            })
+        req.quebra_processos = quebra
 
     if tipo == "rendimento":
         template_name = "rendimento/impressao.html"
@@ -257,8 +314,13 @@ class RequisicaoViewSet(viewsets.ModelViewSet):
     serializer_class = RequisicaoSerializer
 
 class FluxoRequisicaoViewSet(viewsets.ModelViewSet):
-    queryset = FluxoRequisicao.objects.all()
+    queryset = FluxoRequisicao.objects.all().order_by('-id')
     serializer_class = FluxoRequisicaoSerializer
+
+class JustificativaViewSet(viewsets.ModelViewSet):
+    queryset = Justificativa.objects.all().order_by('nome')
+    serializer_class = JustificativaSerializer
+    permission_classes = [AllowAny]
 
 
 @csrf_exempt
@@ -274,6 +336,7 @@ def ler_qrcode_movimentacao(request):
     
     qtd_recebida = int(request.data.get('quantidade', 0))
     motivo_diferenca = request.data.get('motivo_diferenca', 'AINDA_EM_PROCESSO')
+    justificativa_id = request.data.get('justificativa_id')
 
     if not cd_requisicao or not operador_id or not processo_id or qtd_recebida <= 0:
         return Response({'sucesso': False, 'erro': 'Dados incompletos ou quantidade inválida.'}, status=400)
@@ -303,19 +366,26 @@ def ler_qrcode_movimentacao(request):
     total_disponivel = sum(f.quantidade for f in fluxos_para_consumir if f.quantidade)
     
     if total_disponivel == 0:
-        return Response({'sucesso': False, 'erro': 'Atenção: Não há peças disponíveis em aberto nesta requisição.'}, status=400)
+        # Se não há peças abertas, pega o último processo que ela passou para registrar o erro
+        ultimo_fluxo = requisicao.fluxos.order_by('-dt_saida', '-id').first()
+        processo_anterior = ultimo_fluxo.processo.nome if ultimo_fluxo and ultimo_fluxo.processo else "Desconhecido"
+        
+        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Erro na Contagem anterior no processo {processo_anterior}. Lidos {qtd_recebida} mas havia 0 disponíveis."
+        requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+        requisicao.save()
 
     # Se o operador tentar puxar mais peças do que o lote total disponível
-    if qtd_recebida > total_disponivel:
+    elif qtd_recebida > total_disponivel:
         resumo_atrasados = {}
         for f in fluxos_para_consumir:
             nome_proc = f.processo.nome if f.processo else "Desconhecido"
             resumo_atrasados[nome_proc] = resumo_atrasados.get(nome_proc, 0) + (f.quantidade or 0)
         
-        texto_atrasados = " | ".join([f"{qtd} peças em {proc}" for proc, qtd in resumo_atrasados.items() if qtd > 0])
-        msg_erro = f'❌ Você tentou puxar {qtd_recebida} peças, mas só existem {total_disponivel} peças livres na fábrica para este lote.\n\n📍 Onde elas estão: [{texto_atrasados}]'
+        texto_atrasados = " e ".join([proc for proc, qtd in resumo_atrasados.items() if qtd > 0])
         
-        return Response({'sucesso': False, 'erro': msg_erro}, status=400)
+        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Erro na Contagem anterior no processo {texto_atrasados}. Lidos {qtd_recebida} mas havia {total_disponivel}."
+        requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+        requisicao.save()
 
     qtd_a_consumir = qtd_recebida
 
@@ -373,6 +443,22 @@ def ler_qrcode_movimentacao(request):
         dt_processo=agora,
         encerrado=False
     )
+    
+    # --------------------------------------------------------------------------------
+    # 4. REGISTRO DINÂMICO DE JUSTIFICATIVA DA MEDIDORA
+    # --------------------------------------------------------------------------------
+    if justificativa_id:
+        try:
+            justif = Justificativa.objects.get(id=justificativa_id)
+            req_justif, created = RequisicaoJustificativa.objects.get_or_create(
+                requisicao=requisicao,
+                justificativa=justif,
+                defaults={'quantidade': 0}
+            )
+            req_justif.quantidade += qtd_recebida
+            req_justif.save()
+        except Justificativa.DoesNotExist:
+            pass
 
     return Response({
         'sucesso': True,

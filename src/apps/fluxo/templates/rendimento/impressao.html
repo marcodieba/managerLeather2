@@ -3,215 +3,228 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tabela de Controle</title>
+    <title>Relatório de Rendimento</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: sans-serif;
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            margin: 0;
+            padding: 10px;
+            color: #334155;
+            background-color: #fff;
         }
-        table {
-            border-collapse: collapse;
-            width: 80%;
-            margin: 20px auto;
-        }
-        th, td {
-            border: 1px solid #ccc;
-            padding: 8px;
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 700;
             text-align: center;
+            color: #0f172a;
+            margin-bottom: 5px;
+            text-transform: uppercase;
         }
-        th {
-            background-color: #f0f0f0;
+
+        .header-subtitle {
+            font-size: 10px;
+            color: #64748b;
+            text-align: left;
+            margin-bottom: 15px;
         }
-        .verde-claro {
-            background-color: #90EE90; /* Verde claro */
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
         }
-        .amarelo {
-            background-color: yellow;
+
+        th, td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 6px 8px;
+            text-align: center;
+            vertical-align: middle;
         }
-        .vermelho {
-            background-color: #FFDAB9; /* Tom de vermelho/laranja claro */
+
+        /* Modern Headers */
+        .table-header {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: #475569;
+            text-transform: uppercase;
+            font-size: 10px;
         }
-        .verde-escuro {
-            background-color: #00FF00; /* Verde mais escuro */
-            color: black;
+
+        .col-left { text-align: left; }
+        .font-bold { font-weight: 600; color: #1e293b; }
+
+        /* Status Colors */
+        .text-danger { color: #ef4444; font-weight: 700; }
+        .text-success { color: #22c55e; font-weight: 700; }
+        
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
         }
-        .linha-destaque td {
-            font-weight: bold;
+        .badge-gray { background-color: #f1f5f9; color: #475569; }
+
+        /* Block Titles */
+        .section-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #334155;
+            border-left: 3px solid #3b82f6;
+            padding-left: 8px;
+            margin: 20px 0 10px 0;
+            text-transform: uppercase;
+        }
+
+        @media print {
+            body { margin: 0; padding: 0; }
+            @page { margin: 1cm; size: portrait; }
         }
     </style>
 </head>
 <body>
-    {% for item in objetos %}
-    <table>
-        
-        <thead>
-            <tr>
-                <th colspan="3">ENTRADA / LOTE -> {{ item.lote }}</th>
-            </tr>
-            <tr>
-                <th>Qt</th>
-                <th>Mt²</th>
-                <th><strong>%</strong></th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>{{ item.qt }}</td>
-                <td>{{ item.m2 }}</td>
-                <td><strong>%</strong> 100 </td>
-                
-            </tr>
 
-            
-        </tbody>
-        
+{% for item in objetos %}
+<div style="page-break-after: always;">
+
+    <div class="header-title">SEA - Relatório de Rendimento</div>
+    <div class="header-subtitle">Filtro: (Marca de Couro igual a {{ item.lote }})</div>
+
+    <!-- CABEÇALHO DO LOTE -->
+    <table>
+        <tr class="table-header">
+            <td class="col-left">OS</td>
+            <td class="col-left">Artigo</td>
+            <td class="col-left">Cliente</td>
+            <td>Data Expedição</td>
+            <td>Situação</td>
+        </tr>
+        <tr>
+            <td class="col-left font-bold">{{ item.cd_requisicao }}</td>
+            <td class="col-left">{{ item.artigo }}</td>
+            <td class="col-left">{{ item.nr_pedido|default:"-" }}</td>
+            <td>{{ item.data_expedicao|date:"d/m/y"|default:"-" }}</td>
+            <td><span class="badge badge-gray">{% if item.encerrado %}ENCERRADO{% else %}EM PROC.{% endif %}</span></td>
+        </tr>
     </table>
 
+    <div class="section-title">Análise de Rendimento Global</div>
     <table>
-        <thead>
-            <tr>
-                <th colspan="3">SAÍDA / LOTE -> {{ item.lote }}</th>
-            </tr>
-            <tr>
-                <th>Qt</th>
-                <th>Mt²</th>
-                <th>Rendimento</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>{{ item.exp_qt}}</td>
-                <td>{{ item.exp_m2 }}</td>
-                <td class="verde-escuro">{{ item.rend }}</td>
-            </tr>
-        </tbody>
+        <tr class="table-header">
+            <td class="col-left">Etapa</td>
+            <td>Peças (Qt)</td>
+            <td>Metragem (M²)</td>
+            <td>Área Média (AM)</td>
+            <td>Performance (%)</td>
+        </tr>
+        <tr>
+            <td class="col-left font-bold">Entrada (Wet Blue)</td>
+            <td>{{ item.quantidade|default:"0" }}</td>
+            <td>{{ item.qt_mt|default:"0,00" }}</td>
+            <td>{{ item.am|floatformat:2|default:"0,00" }}</td>
+            <td>100.00%</td>
+        </tr>
+        <tr>
+            <td class="col-left font-bold">Saída (Medidora/Exp.)</td>
+            <td>{{ item.qt|default:"0" }}</td>
+            <td>{{ item.m2|default:"0,00" }}</td>
+            <td>{{ item.exp_am|floatformat:2|default:"0,00" }}</td>
+            <td class="{% if item.quebra_global_perc < 0 %}text-danger{% else %}text-success{% endif %}">
+                {{ item.quebra_global_perc|default:"0" }}%
+            </td>
+        </tr>
     </table>
 
+    <div class="section-title">Classificação Final</div>
     <table>
-        <thead>
-            <tr class="amarelo">
-                <th>OBSERVAÇÕES</th>
-                <th>PEÇAS</th>
-                <th>M²</th>
-                <th>%</th>
-            </tr>
-        </thead>
-        <tbody>
+        <tr class="table-header">
+            <td class="col-left">Categoria</td>
+            <td>Peças</td>
+            <td>M²</td>
+            <td>Representatividade (%)</td>
+        {% for justif in item.justificativas_registadas.all %}
+        <tr>
+            <td class="col-left font-bold">{{ justif.justificativa.nome }}</td>
+            <td>{{ justif.quantidade|default:"0" }}</td>
+            <td>{{ justif.m2_proporcional|floatformat:2|default:"0,00" }}</td>
+            <td>{{ justif.m2_proporcional|percent:item.qt_mt|floatformat:2 }}%</td>
+        </tr>
+        {% empty %}
+            {% if item.encerrado %}
             <tr>
-                <td>APROVADO</td>
-                <td>{{ item.exp_qt }}</td>
-                <td>{{ item.exp_m2 }}</td>
-                <td>{{item.exp_m2|percent:item.m2|floatformat:2}}</td>
+                <td class="col-left font-bold">Aprovado</td>
+                <td>{{ item.qt|default:"0" }}</td>
+                <td>{{ item.m2|floatformat:2|default:"0,00" }}</td>
+                <td>{% if item.qt_mt > 0 %}{{ item.m2|percent:item.qt_mt|floatformat:2 }}{% else %}100.00{% endif %}%</td>
             </tr>
-            <tr>
-                <td>REPROVADO</td>
-                <td>{{ item.qt|subtract:item.exp_qt }}</td>
-                <td>{{ item.m2|subtract:item.exp_m2 }}</td>
-                <td>{{100.00|subtract:item.exp_m2|percent:item.m2|floatformat:2}}</td>
-            </tr>
-            <tr>
-                <td>GROSSO</td>
-                <td>0</td>
-                <td>0</td>
-                <td>0,000%</td>
-            </tr>
-        </tbody>
+            {% else %}
+            <tr><td colspan="4" style="color:#94a3b8; font-style: italic;">Nenhuma classificação registada na medidora.</td></tr>
+            {% endif %}
+        {% endfor %}
     </table>
 
+    <div class="section-title">Perdas e Refilos</div>
     <table>
-        <thead>
-            <tr class="amarelo">
-                <th>OBSERVAÇÕES</th>
-                <th>KG</th>
-                <th>M²</th>
-                <th>PORCENTAGEM DE PERCA</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% with tota_kg=0 %}
+        <tr class="table-header">
+            <td class="col-left">Processo</td>
+            <td>Peso (KG)</td>
+            <td>Estimativa M²</td>
+            <td>Quebra (%)</td>
+        </tr>
+        {% with tota_kg=0 tota_m2=0 tota_perc=0 %}
             {% for refilo in item.refilos.all %}
-                
-                {% with refilo_m2=refilo.qt_refila|divide:item.kg_blue %}
-                    <tr>
-                        <td>REFILO {{refilo.processo}}</td>
-                        <td>{{ refilo.qt_refila.all|length }}</td>
-                        <td>{{ refilo.qt_refila|divide:item.kg_blue|floatformat:2 }}</td>
-                        <td>{{ refilo_m2|percent:item.m2|floatformat:2 }}%</td>
-                    </tr>
+                {% with refilo_m2=refilo.qt_refila|divide:item.kg_blue|default:0 perc=refilo.qt_refila|divide:item.kg_blue|percent:item.m2|default:0 %}
+                <tr>
+                    <td class="col-left font-bold">Refilo {{ refilo.processo }}</td>
+                    <td>{{ refilo.qt_refila }}</td>
+                    <td>{{ refilo_m2|floatformat:3 }}</td>
+                    <td>{{ perc|floatformat:2 }}%</td>
+                </tr>
                 {% endwith %}
-                {% if refilo.qt_refila|length == 1 %}
-                    {% with tota_kg=refilo.qt_refila %}
-                    {% endwith %}
-                {% else %}
-                {% with tota_kg=total_kg|add:refilo.qt_refila %}
-                {% endwith %}
-                {% endif %}
             {% endfor %}
-            <!-- <tr>
-                <td>REFILO SECAGEM</td>
-                <td>0</td>
-                <td>0,000</td>
-                <td>0,00%</td>
+            
+            {% if not item.refilos.all %}
+                <tr><td colspan="4" style="color:#94a3b8; font-style: italic;">Nenhum refilo registado.</td></tr>
+            {% endif %}
+
+            <tr style="background-color: #f1f5f9; border-top: 2px solid #cbd5e1;">
+                <td class="col-left font-bold">TOTAL DE PERDAS FÍSICAS</td>
+                <td class="font-bold">{{ item.tota_perca_kg|floatformat:3 }}</td> 
+                <td class="font-bold">{{ item.tota_perca_m2|floatformat:2 }}</td>
+                <td class="font-bold text-danger">{{ item.tota_perca_perc|floatformat:2 }}%</td>
             </tr>
-            <tr>
-                <td>REFILO LIXADEIRA</td>
-                <td>0</td>
-                <td>0,000</td>
-                <td>0,00%</td>
-            </tr>
-            <tr>
-                <td>REFILO QUALIDADE</td>
-                <td>0</td>
-                <td>0,00</td>
-                <td>0,00%</td>
-            </tr>
-            <tr>
-                <td>REFILO MOLISSA</td>
-                <td>0</td>
-                <td>0,00</td>
-                <td>0,00%</td>
-            </tr> -->
-            <tr class="linha-destaque">
-                <td>TOTAL DE PERCA</td>
-                <td>{{ tota_kg }}</td>
-                <td>6,32</td>
-                <td>1,79%</td>
-            </tr>
-            {% endwith %}
-        </tbody>
+        {% endwith %}
     </table>
 
+    <div class="section-title">Análise Financeira do Refilo</div>
     <table>
-        <thead>
-            <tr class="vermelho">
-                <th>REFILO EM R$</th>
-                <th>M²</th>
-                <th>VL/M²</th>
-                <th>TOTAL DA PERCA EM REAIS</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td></td>
-                <td class="verde-claro">6,32</td>
-                <td class="verde-claro">42,00</td>
-                <td class="verde-claro">265,26</td>
-            </tr>
-        </tbody>
+        <tr class="table-header">
+            <td class="col-left">Descrição</td>
+            <td>Valor Unitário (R$/M²)</td>
+            <td>Metragem Perdida (M²)</td>
+            <td>Prejuízo (R$)</td>
+        </tr>
+        <tr>
+            <td class="col-left font-bold">Custo de Refilo</td>
+            <td>R$ {{ item.financeiro_vl_m2|floatformat:2 }}</td>
+            <td>{{ item.tota_perca_m2|floatformat:2 }}</td>
+            <td class="font-bold text-danger">R$ {{ item.financeiro_total|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td class="col-left font-bold" style="padding-top: 15px;">Densidade (KG/M²) - Blue</td>
+            <td colspan="3" class="col-left" style="padding-top: 15px;">{{ item.kg_blue|default:"0,00" }}</td>
+        </tr>
+        <tr>
+            <td class="col-left font-bold">Densidade (KG/M²) - Seco</td>
+            <td colspan="3" class="col-left">{{ item.seco|default:"0,00" }}</td>
+        </tr>
     </table>
 
-    <table>
-        <tbody>
-            <tr>
-                <th>KG/M² - BLUE</th>
-                <td>1,90</td>
-            </tr>
-            <tr>
-                <th>KG/M² - SECO</th>
-                <td>1,16</td>
-            </tr>
-        </tbody>
-    </table>
-    {% endfor %}    
+</div>
+{% endfor %}
+
 </body>
 </html>

@@ -3,6 +3,7 @@
 
 import datetime
 from decimal import Decimal
+# pyrefly: ignore [missing-import]
 from django.db import connection, transaction
 import pymssql
 import re
@@ -10,8 +11,10 @@ import difflib
 
 from pathlib import Path
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+try:
+    BASE_DIR = Path(__file__).resolve().parent.parent
+except NameError:
+    BASE_DIR = Path.cwd()
 
 date_now = datetime.datetime.now()
 
@@ -28,111 +31,127 @@ class SelectRequisicao(object):
 
     def requisicao(self):
         cursor = self.conexao()
-        cursor.execute(""" SELECT TOP 15
-                            Requisicao.Codigo,
-                            Requisicao.Dt_Hr_Requisicao,
+        cursor.execute(""" SELECT TOP 250
+                                    Requisicao.Codigo,
+                                    Requisicao.Dt_Hr_Requisicao,
 
-                            ISNULL(
-                                STUFF(
-                                    (
-                                        SELECT ', ' + DistinctLotes.Sea_OS
-                                        FROM (
-                                            SELECT DISTINCT RP_Lote.Sea_OS
-                                            FROM Requisicao_Partida RP_Lote
-                                            WHERE RP_Lote.Cd_Requisicao = Requisicao.Codigo
-                                            AND RP_Lote.Sea_OS IS NOT NULL
-                                        ) AS DistinctLotes
-                                        ORDER BY DistinctLotes.Sea_OS
-                                        FOR XML PATH(''), TYPE
-                                    ).value('.', 'NVARCHAR(MAX)')
-                                , 1, 2, ''),
-                            '') AS Lote,
+                                    ISNULL(
+                                        STUFF(
+                                            (
+                                                SELECT ', ' + DistinctLotes.Sea_OS
+                                                FROM (
+                                                    SELECT DISTINCT RP_Lote.Sea_OS
+                                                    FROM Requisicao_Partida RP_Lote
+                                                    WHERE RP_Lote.Cd_Requisicao = Requisicao.Codigo
+                                                    AND RP_Lote.Sea_OS IS NOT NULL
+                                                ) AS DistinctLotes
+                                                ORDER BY DistinctLotes.Sea_OS
+                                                FOR XML PATH(''), TYPE
+                                            ).value('.', 'NVARCHAR(MAX)')
+                                        , 1, 2, ''),
+                                    '') AS Lote,
 
-                            ISNULL(Formulacao.Nome, '') + 
-                            CASE 
-                                WHEN Formulacao_Grupo.Nome IS NOT NULL 
-                                THEN ' - ' + CONVERT(CHAR(20), Formulacao_Grupo.Nome)
-                                ELSE ''
-                            END AS Nm_05_Formulacao,
+                                    ISNULL(Formulacao.Nome, '') +
+                                    CASE
+                                        WHEN Formulacao_Grupo.Nome IS NOT NULL
+                                        THEN ' - ' + CONVERT(CHAR(20), Formulacao_Grupo.Nome)
+                                        ELSE ''
+                                    END AS Nm_05_Formulacao,
 
-                            ISNULL(
-                                STUFF(
-                                    (
-                                        SELECT ', ' + CAST(InnerData.QuantidadeParaAgg AS VARCHAR)
-                                        FROM (
-                                            SELECT TOP 10
-                                                RP.Quantidade AS QuantidadeParaAgg,
-                                                CASE WHEN RP.Sea_OS IS NULL THEN 1 ELSE 0 END AS SeaOS_Sort_Priority,
-                                                RP.Sea_OS AS SeaOS_Sort_Value
+                                    ISNULL(
+                                        STUFF(
+                                            (
+                                                SELECT ', ' + CAST(InnerData.QuantidadeParaAgg AS VARCHAR)
+                                                FROM (
+                                                    SELECT TOP 10
+                                                        RP.Quantidade AS QuantidadeParaAgg,
+                                                        CASE WHEN RP.Sea_OS IS NULL THEN 1 ELSE 0 END AS SeaOS_Sort_Priority,
+                                                        RP.Sea_OS AS SeaOS_Sort_Value
+                                                    FROM Requisicao_Partida RP
+                                                    WHERE RP.Cd_Requisicao = Requisicao.Codigo
+                                                    ORDER BY
+                                                        CASE WHEN RP.Sea_OS IS NULL THEN 1 ELSE 0 END,
+                                                        RP.Sea_OS,
+                                                        RP.Quantidade
+                                                ) AS InnerData
+                                                ORDER BY
+                                                    InnerData.SeaOS_Sort_Priority,
+                                                    InnerData.SeaOS_Sort_Value,
+                                                    InnerData.QuantidadeParaAgg
+                                                FOR XML PATH(''), TYPE
+                                            ).value('.', 'NVARCHAR(MAX)')
+                                        , 1, 2, ''),
+                                    '') AS Pecas,
+
+                                    ISNULL(Requisicao.Peso, 0) AS Peso_Kgs,
+
+                                    -- Total de pés² da requisição
+                                    ISNULL(
+                                        (
+                                            SELECT SUM(RP.Pes2)
                                             FROM Requisicao_Partida RP
                                             WHERE RP.Cd_Requisicao = Requisicao.Codigo
-                                            ORDER BY
-                                                CASE WHEN RP.Sea_OS IS NULL THEN 1 ELSE 0 END,
-                                                RP.Sea_OS,
-                                                RP.Quantidade
-                                        ) AS InnerData
-                                        ORDER BY
-                                            InnerData.SeaOS_Sort_Priority,
-                                            InnerData.SeaOS_Sort_Value,
-                                            InnerData.QuantidadeParaAgg
-                                        FOR XML PATH(''), TYPE
-                                    ).value('.', 'NVARCHAR(MAX)')
-                                , 1, 2, ''),
-                            '') AS Pecas,
+                                        ),
+                                        0
+                                    ) AS Total_Pes2,
 
-                            ISNULL(Requisicao.Peso, 0) AS Peso_Kgs,
-                            ISNULL(Requisicao.Observacoes, '') AS Cd_Observacoes,
-                            Requisicao.Fulao,
+                                    ISNULL(Requisicao.Observacoes, '') AS Cd_Observacoes,
 
-                            ISNULL(
-                                STUFF(
-                                    (
-                                        SELECT ', ' + InnerData.ObservacaoParaAgg
-                                        FROM (
-                                            SELECT TOP 10
-                                                RP.Observacao AS ObservacaoParaAgg,
-                                                CASE WHEN RP.Sea_OS IS NULL THEN 1 ELSE 0 END AS SeaOS_Sort_Priority,
-                                                RP.Sea_OS AS SeaOS_Sort_Value
-                                            FROM Requisicao_Partida RP
-                                            WHERE RP.Cd_Requisicao = Requisicao.Codigo
-                                            ORDER BY
-                                                CASE WHEN RP.Sea_OS IS NULL THEN 1 ELSE 0 END,
-                                                RP.Sea_OS,
-                                                RP.Observacao
-                                        ) AS InnerData
-                                        ORDER BY
-                                            InnerData.SeaOS_Sort_Priority,
-                                            InnerData.SeaOS_Sort_Value,
-                                            InnerData.ObservacaoParaAgg
-                                        FOR XML PATH(''), TYPE
-                                    ).value('.', 'NVARCHAR(MAX)')
-                                , 1, 2, ''),
-                            '') AS Pallet_Refila,
+                                    Requisicao.Fulao,
 
-                            ISNULL(Requisicao.Pecas, 0) AS total_pc
+                                    ISNULL(
+                                        STUFF(
+                                            (
+                                                SELECT ', ' + InnerData.ObservacaoParaAgg
+                                                FROM (
+                                                    SELECT TOP 10
+                                                        RP.Observacao AS ObservacaoParaAgg,
+                                                        CASE WHEN RP.Sea_OS IS NULL THEN 1 ELSE 0 END AS SeaOS_Sort_Priority,
+                                                        RP.Sea_OS AS SeaOS_Sort_Value
+                                                    FROM Requisicao_Partida RP
+                                                    WHERE RP.Cd_Requisicao = Requisicao.Codigo
+                                                    ORDER BY
+                                                        CASE WHEN RP.Sea_OS IS NULL THEN 1 ELSE 0 END,
+                                                        RP.Sea_OS,
+                                                        RP.Observacao
+                                                ) AS InnerData
+                                                ORDER BY
+                                                    InnerData.SeaOS_Sort_Priority,
+                                                    InnerData.SeaOS_Sort_Value,
+                                                    InnerData.ObservacaoParaAgg
+                                                FOR XML PATH(''), TYPE
+                                            ).value('.', 'NVARCHAR(MAX)')
+                                        , 1, 2, ''),
+                                    '') AS Pallet_Refila,
 
-                        FROM Requisicao
-                        LEFT JOIN Formulacao
-                            ON Formulacao.Codigo = Requisicao.Cd_Formulacao
-                        LEFT JOIN Unidade_de_Producao
-                            ON Unidade_de_Producao.Codigo = Requisicao.Cd_Unidade_de_Producao
-                        LEFT JOIN Funcionario Usuario_Origem
-                            ON Usuario_Origem.Codigo = Requisicao.Cd_Usuario_Origem
-                        LEFT JOIN Funcionario Ultimo_Usuario
-                            ON Ultimo_Usuario.Codigo = Requisicao.Cd_Ultimo_Usuario
-                        LEFT JOIN Formulacao_Grupo
-                            ON Formulacao.Cd_Formulacao_Grupo = Formulacao_Grupo.Codigo
+                                    ISNULL(Requisicao.Pecas, 0) AS total_pc
 
-                        WHERE
-                            Grupo_Industria = 'S'
-                            OR Grupo_Industria = 'W'
-                            AND EXISTS (
-                                SELECT 1
-                                FROM Requisicao_Partida RP_Exists
-                                WHERE RP_Exists.Cd_Requisicao = Requisicao.Codigo
-                            )
+                                FROM Requisicao
 
-                        ORDER BY Requisicao.Dt_Hr_Requisicao DESC;
+                                LEFT JOIN Formulacao
+                                    ON Formulacao.Codigo = Requisicao.Cd_Formulacao
+
+                                LEFT JOIN Unidade_de_Producao
+                                    ON Unidade_de_Producao.Codigo = Requisicao.Cd_Unidade_de_Producao
+
+                                LEFT JOIN Funcionario Usuario_Origem
+                                    ON Usuario_Origem.Codigo = Requisicao.Cd_Usuario_Origem
+
+                                LEFT JOIN Funcionario Ultimo_Usuario
+                                    ON Ultimo_Usuario.Codigo = Requisicao.Cd_Ultimo_Usuario
+
+                                LEFT JOIN Formulacao_Grupo
+                                    ON Formulacao.Cd_Formulacao_Grupo = Formulacao_Grupo.Codigo
+
+                                WHERE
+                                    (Grupo_Industria = 'S' OR Grupo_Industria = 'W')
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM Requisicao_Partida RP_Exists
+                                        WHERE RP_Exists.Cd_Requisicao = Requisicao.Codigo
+                                    )
+
+                                ORDER BY Requisicao.Dt_Hr_Requisicao DESC;
                         """)
 
         return cursor.fetchall()
@@ -146,15 +165,35 @@ class SelectRequisicao(object):
                 padrao_refilo = re.compile(r'^:\d+$')
                 
                 for cd_req in query_set:
+                    data = date_now
+
+                    cd_requisicao = cd_req[0]
+                    dt_requisicao = cd_req[1].strftime('%Y-%m-%d %H:%M:%S') if cd_req[1] else None
+                    lote = cd_req[2]
+                    artigo = cd_req[3]
+                    quantidade = cd_req[10]    # total_pc
+                    ficha = cd_req[7]          # Cd_Observacoes
+                    fulao = cd_req[8]          # Fulao
+                    modificado = date_now
+                    encerrado = 0
+                    cd_pallet = cd_req[9]      # Pallet_Refila
+                    qt_mt = cd_req[6]          # Total_Pes2
+                    kg_blue = cd_req[5]        # Peso_Kgs
+                    setor =  ''
+                    
                     try:
                         rq = str(cd_req[4])
-                        pcs = cd_req[4].split(',')
+                        pcs = str(cd_req[4]).split(',') if cd_req[4] else []
                     
-                        if str(cd_req[8][0:9]) is not None or str(cd_req[8][0:9]) != 'NULL':
-                            pallet = cd_req[8].split(',')
-                            lista_np = str(cd_req[6]).split(',')
+                        if cd_req[9] and str(cd_req[9]).strip() != 'NULL':
+                            pallet = str(cd_req[9]).split(',')
+                            lista_np = str(ficha).split(',')
+                        else:
+                            pallet = []
+                            lista_np = str(ficha).split(',')
                         refila = [float(item.split(':', 1)[-1]) for item in pallet if 'REFI' in item]
-                    except:
+                    except Exception as e:
+                        print(f"Erro no parsing: {e}")
                         continue
                     
                     np = ''
@@ -166,9 +205,34 @@ class SelectRequisicao(object):
                             if isinstance(item, str) and padrao.match(item)
                         ]
 
-                    req_date = [date_now, cd_req[0], cd_req[1].strftime('%Y-%m-%d %H:%M:%S'), cd_req[2], cd_req[3], cd_req[9], cd_req[6], cd_req[7], date_now, 0]
+                    # req_date = [date_now, cd_req[0], cd_req[1].strftime('%Y-%m-%d %H:%M:%S'), cd_req[2], cd_req[3], cd_req[9], cd_req[6], cd_req[7], date_now, 0]
+                    # req_date = [
+                    #                 date_now, 
+                    #                 cd_req[0], 
+                    #                 cd_req[1].strftime('%Y-%m-%d %H:%M:%S') if cd_req[1] else None, 
+                    #                 cd_req[2], 
+                    #                 cd_req[3], 
+                    #                 cd_req[9], 
+                    #                 cd_req[6], 
+                    #                 cd_req[7], 
+                    #                 date_now, 
+                    #                 0
+                    #             ]
+                    
+                    
+                    req_date = [data, cd_requisicao, dt_requisicao, lote, artigo, quantidade, ficha, fulao, modificado, encerrado, cd_pallet, qt_mt, kg_blue ]
 
-                    nome_formulacao = str(cd_req[3]).strip().upper()
+                    # CORREÇÃO: ? passa a %s
+                    cursorsqlite.execute("""
+                        SELECT cd_requisicao, artigo, dt_requisicao, lote, quantidade, qt_mt 
+                        FROM fluxo_requisicao 
+                        WHERE cd_requisicao = %s 
+                    """, (cd_requisicao,))
+
+                    print(artigo)
+                    # ✅ NOVO BLOCO (NÃO ALTERA SUA LÓGICA)
+                    nome_formulacao = str(artigo).strip().upper()
+
                     prefixo = nome_formulacao[:3]
 
                     if prefixo == 'CUR':
@@ -177,16 +241,16 @@ class SelectRequisicao(object):
                         setor = 'Cal'
                     else:
                         setor = 'REC'
-
-                    # CORREÇÃO: ? passa a %s
-                    cursorsqlite.execute("""
-                        SELECT cd_requisicao, artigo, dt_requisicao, lote, quantidade, qt_mt 
-                        FROM fluxo_requisicao 
-                        WHERE cd_requisicao = %s 
-                    """, (cd_req[0],))
+                    # ✅ FIM DO BLOCO NOVO
+                    # print(cd_req[6])
+                    # requisicao = cursorsqlite.execute("""
+                    #     SELECT cd_requisicao, artigo, dt_requisicao, lote, quantidade, qt_mt 
+                    #     FROM fluxo_requisicao 
+                    #     WHERE cd_requisicao = ? 
+                    # """, (cd_requisicao,))
 
                     if req_date[6] == 'NULL':
-                        req_date[6] = 'FICHA'
+                        ficha = 'FICHA'
 
                     resultado_remv_refilo = [nome for nome in pallet]
                     for rm_refilo in pallet:
@@ -194,8 +258,8 @@ class SelectRequisicao(object):
                             resultado_remv_refilo.remove(rm_refilo)
 
                     nr_Pallet = str(resultado_remv_refilo)
-                    req_date.append(nr_Pallet.strip('[]'))
-
+                    # req_date.append(nr_Pallet.strip('[]'))
+                    print(qt_mt)
                     metros_pallet = []
                     pcs_ = []
 
@@ -238,47 +302,51 @@ class SelectRequisicao(object):
 
                                     metros_pallet.append(metragem_pallet * int(pc))
                     
-                    req_date.append(sum(metros_pallet))
-
+                    # req_date.append(sum(metros_pallet))
+                    # print("Quantidade de parâmetros:", len(req_date ))
+                    # print(req_date)
                     # CORREÇÃO: ? passa a %s
                     cursorsqlite.execute("""
                                     INSERT INTO fluxo_requisicao (
                                         data, cd_requisicao, dt_requisicao, lote, artigo, quantidade,
-                                        ficha, fulao, modificado, encerrado, pallet, qt_mt, setor
+                                        ficha, fulao, modificado, encerrado, pallet, qt_mt, kg_blue, setor
                                     )
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s )
                                     ON CONFLICT(cd_requisicao) DO UPDATE SET
                                         data = excluded.data,
                                         dt_requisicao = excluded.dt_requisicao,
                                         lote = excluded.lote,
                                         artigo = excluded.artigo,
                                         quantidade = excluded.quantidade,
-                                        obs = excluded.ficha,
+                                        ficha = excluded.ficha,
                                         fulao = excluded.fulao,
                                         modificado = excluded.modificado,
-                                        encerrado = excluded.encerrado,
+                                        encerrado = fluxo_requisicao.encerrado,
                                         pallet = excluded.pallet,
                                         qt_mt = excluded.qt_mt,
+                                        kg_blue = excluded.kg_blue,
                                         setor = excluded.setor
                                     WHERE 
                                         data != excluded.data OR
+                                        cd_requisicao != excluded.cd_requisicao OR
                                         dt_requisicao != excluded.dt_requisicao OR
                                         lote != excluded.lote OR
                                         artigo != excluded.artigo OR
                                         quantidade != excluded.quantidade OR
-                                        obs != excluded.ficha OR
+                                        ficha != excluded.ficha OR
                                         fulao != excluded.fulao OR
                                         modificado != excluded.modificado OR
-                                        encerrado != excluded.encerrado OR
                                         pallet != excluded.pallet OR
                                         qt_mt != excluded.qt_mt OR
+                                        kg_blue != excluded.kg_blue OR
                                         setor != excluded.setor
+                                         
                                 """, req_date + [setor])
 
                     # CORREÇÃO: ? passa a %s
                     cursorsqlite.execute("""
                         SELECT id FROM fluxo_requisicao WHERE cd_requisicao = %s
-                    """, (cd_req[0],))
+                    """, (cd_requisicao,))
                     row = cursorsqlite.fetchone()
 
                     if not row:
@@ -308,7 +376,7 @@ class SelectRequisicao(object):
                         )
                     """, (requisicao_id, processo_id_recurtimento, qtd_fluxo, dt_fluxo, requisicao_id, processo_id_recurtimento))
 
-                    texto_artigo_req = str(req_date[4]).strip().upper() 
+                    texto_artigo_req = str(artigo).strip().upper() 
                     if texto_artigo_req and texto_artigo_req != 'NULL':
                         cursorsqlite.execute("SELECT id, nome FROM fluxo_artigo")
                         todos_artigos = cursorsqlite.fetchall()
@@ -326,7 +394,7 @@ class SelectRequisicao(object):
                         
                         if not artigo_encontrado_id:
                             nomes_cadastrados = [a[1] for a in todos_artigos]
-                            matches = difflib.get_close_matches(req_date[4], nomes_cadastrados, n=1, cutoff=0.5)
+                            matches = difflib.get_close_matches(artigo, nomes_cadastrados, n=1, cutoff=0.5)
                             if matches:
                                 artigo_encontrado_id = next(a[0] for a in todos_artigos if a[1] == matches[0])
 

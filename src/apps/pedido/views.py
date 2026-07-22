@@ -104,7 +104,7 @@ def anexa_processos_consolidados(pedidos: list[Pedido]):
 
 
 @staff_member_required
-def dashboard_view(request):
+def dashboard_view(request, *args, **kwargs):   
     agora = timezone.now()
     trinta_dias_atras = agora - timedelta(days=30)
 

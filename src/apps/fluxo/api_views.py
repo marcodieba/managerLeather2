@@ -16,6 +16,7 @@ from .models import Requisicao, Operador
 from .serializers import RequisicaoSerializer, OperadorSerializer
 from .views import OrdemServicoSQL, extrair_marca_couro
 from .select_custo_formula import custo_requisicao
+from src.apps.fluxo.sync_os_encerra import SyncOrdemServico
 
 
 # --- FUNÇÕES AUXILIARES DE TEMPO ---
@@ -316,6 +317,28 @@ def api_me(request):
             'nome_usuario': request.user.username,
             'processos': []
         })
+
+@api_view(['POST'])
+@permission_classes([AllowAny]) # Pode restringir para IsAuthenticated se preferir
+def api_sync_ordens_servico(request):
+    """
+    Inicia o processo manual (via clique no botão) para sincronizar e encerrar
+    as requisições locais com base nas Ordens de Serviço do Marca_Evolution.
+    """
+    sync_tool = SyncOrdemServico()
+    resultado = sync_tool.sync_e_encerra_requisicoes()
+    
+    if resultado.get("sucesso"):
+        return Response({
+            'sucesso': True,
+            'mensagem': f'Sincronização concluída! {resultado.get("atualizadas")} requisições encerradas.',
+            'logs': resultado.get("logs")
+        })
+    else:
+        return Response({
+            'sucesso': False,
+            'mensagem': f'Erro na sincronização: {resultado.get("erro")}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @csrf_exempt
 @api_view(['GET', 'POST'])

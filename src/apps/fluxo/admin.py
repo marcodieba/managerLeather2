@@ -7,21 +7,29 @@ from django.http import HttpResponse
 from django.contrib import messages
 
 # IMPORT CORRIGIDO: Removido a "Etapa"
-from .models import Requisicao, FluxoRequisicao, Artigo, CustoRequisicao, Refilo, Processo, RoteiroArtigo, Operador
+from .models import Requisicao, FluxoRequisicao, Artigo, CustoRequisicao, Refilo, Processo, RoteiroArtigo, Operador, Justificativa, RequisicaoJustificativa
 from django.templatetags.static import static
 from .forms import RequisicaoForm
 
 from src.apps.pedido.models import PedidoRequisicao
 from .selectrequisicao import SelectRequisicao
 from datetime import date
+# pyrefly: ignore [missing-import]
 from django.utils import timezone
+# pyrefly: ignore [missing-import]
 from django.forms.models import BaseInlineFormSet
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 import pymssql
 
 
-update_requisicao = SelectRequisicao
+@admin.action(description='Atualizar Requisições Selecionadas')
+def update_requisicao_action(modeladmin, request, queryset):
+    try:
+        SelectRequisicao().post_requisicao()
+        modeladmin.message_user(request, "Requisições atualizadas com sucesso!", messages.SUCCESS)
+    except Exception as e:
+        modeladmin.message_user(request, f"Erro ao atualizar: {e}", messages.ERROR)
 
 def imprimir_rendimento(modeladmin, request, queryset):
     ids = ",".join(str(obj.pk) for obj in queryset)
@@ -174,6 +182,7 @@ def requisicao_sea(modeladmin, request, queryset):
             continue
     modeladmin.message_user(request, f'{queryset.count()} produtos foram marcados como ativos.', messages.SUCCESS)
 
+# pyrefly: ignore [missing-import]
 from django.contrib.admin import SimpleListFilter
 
 class TemPedidoFilter(SimpleListFilter):
@@ -306,7 +315,7 @@ class RequisicaoAdmin(admin.ModelAdmin):
     search_fields = ('cd_requisicao', 'lote', 'artigo', 'fulao')
     list_filter = [TemPedidoFilter]
     ordering = ('-dt_requisicao',)
-    actions = [update_requisicao, requisicao_sea, imprimir_rendimento, imprimir_fluxograma, imprimir_custo, imprimir_fluxo_detalhado]
+    actions = [update_requisicao_action, requisicao_sea, imprimir_rendimento, imprimir_fluxograma, imprimir_custo, imprimir_fluxo_detalhado]
 
     class Media:
         css = {
@@ -381,3 +390,13 @@ class OperadorAdmin(admin.ModelAdmin):
         )
 
     listar_processos.short_description = "Processos"
+
+@admin.register(Justificativa)
+class JustificativaAdmin(admin.ModelAdmin):
+    list_display = ('nome',)
+    search_fields = ('nome',)
+
+@admin.register(RequisicaoJustificativa)
+class RequisicaoJustificativaAdmin(admin.ModelAdmin):
+    list_display = ('requisicao', 'justificativa', 'quantidade', 'm2_proporcional')
+    search_fields = ('requisicao__cd_requisicao', 'justificativa__nome')

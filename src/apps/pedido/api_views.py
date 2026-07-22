@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from django.utils import timezone
 from datetime import timedelta, datetime
 
-
 from .serializers import EmbarqueSerializer, VeiculoSerializer, TipoVeiculoSerializer
 from src.apps.fluxo.models import Requisicao # Ajuste conforme seu projeto
 
@@ -30,6 +29,7 @@ from .models import (
     PrevisaoEmbarque, PrevisaoItemEmbarque, ReservaEmbarque
 )
 from .views import executar_query_romaneio, _pes2_to_m2
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -88,6 +88,7 @@ def api_dashboard(request):
         }
     })
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def api_embarques_list(request):
@@ -117,6 +118,7 @@ def api_embarques_list(request):
     serializer = EmbarqueSerializer(qs, many=True)
     return Response(serializer.data)
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def api_dados_simulador(request):
@@ -128,8 +130,6 @@ def api_dados_simulador(request):
         "veiculos": VeiculoSerializer(veiculos, many=True).data,
         "tipos_veiculo": TipoVeiculoSerializer(tipos, many=True).data
     })
-
-
 
 
 @api_view(['GET'])
@@ -335,6 +335,7 @@ def _resolver_veiculo_obrigatorio(veiculo_id, tipo_veiculo_id):
     if changed:
         v.save(update_fields=["tipo", "transportadora"])
     return v
+
 
 # --- APIS DE LOGÍSTICA ---
 
@@ -635,3 +636,142 @@ def api_converter_previsao_para_embarque(request):
         "embarque_id": embarque.id, 
         "itens_criados": criados
     }, status=200)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_pedidos_internos(request):
+    """Devolve a lista de Pedidos Internos formatada para o React com a lógica de Prazos"""
+    agora = timezone.now()
+    
+    # Filtra os pedidos exatamente como a sua view antiga fazia
+    pedidos = Pedido.objects.filter(
+        dt_programada__isnull=False
+    ).filter(
+        Q(fechado=False) | Q(fechado__isnull=True)
+    ).order_by('dt_programada', 'cliente', 'unidade_medida')
+    
+    dados = []
+    meses_pt = {1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril", 5: "Maio", 6: "Junho", 
+                7: "Julho", 8: "Agosto", 9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"}
+    
+    for p in pedidos:
+        # 1. RECRIAR A LÓGICA DE PRAZOS ORIGINAL
+        artigo_nome = (p.artigo or "").lower()
+        dias_antecedencia = 20 if "nobuck" in artigo_nome else 11
+        
+        previsao_inicio = p.dt_programada - timedelta(days=dias_antecedencia)
+        prazo = p.dt_programada
+        delta = prazo - agora
+        
+        if delta.total_seconds() < 0:
+            atraso = abs(delta)
+            if atraso.days >= 1:
+                status_texto = f"Atrasado há {atraso.days} dia(s)"
+            else:
+                horas = int(atraso.total_seconds() // 3600)
+                status_texto = f"Atrasado há {horas} hora(s)"
+            status_classe = "atrasado"
+        elif prazo.date() == agora.date():
+            status_texto = "Vence hoje"
+            status_classe = "hoje"
+        else:
+            dias_restantes = delta.days
+            status_texto = f"Faltam {dias_restantes} dia(s)"
+            status_classe = "adiantado"
+
+        # 2. FORMATAR MÊS
+        mes_display = f"{meses_pt.get(p.dt_programada.month, '')} - {p.dt_programada.year}"
+
+        # 3. EMPACOTAR OS DADOS
+        dados.append({
+            "id": p.pk,
+            "nr_contract": p.nr_contract or "",
+            "nr_pedido_cliente": p.nr_pedido_cliente or "",
+            "cliente": p.cliente or "",
+            "artigo": p.artigo or "",
+            "selecao": p.selecao or "",
+            "quantidade": float(p.quantidade or 0),
+            "quantidade_entregue": float(p.quantidade_entregue or 0),
+            "unidade_medida": p.unidade_medida or "N/D",
+            "dt_embarque": p.dt_embarque.isoformat() if p.dt_embarque else None,
+            "dt_programada": p.dt_programada.isoformat() if p.dt_programada else None,
+            "obs": p.obs or "",
+            "status_prazo_texto": status_texto,
+            "status_prazo_classe": status_classe,
+            "mes_display": mes_display,
+            "previsao_inicio": previsao_inicio.isoformat() if previsao_inicio else None
+        })
+        
+    return Response(dados)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_pedidos_dashboard_producao(request):
+    """
+    Retorna os pedidos em aberto que já possuem requisições vinculadas,
+    separando o WIP em Processando e Fila, e identificando o gargalo atual do pedido.
+    """
+    pedidos = Pedido.objects.filter(
+        Q(fechado=False) | Q(fechado__isnull=True),
+        requisicao_links__isnull=False
+    ).distinct().prefetch_related('requisicao_links__requisicao', 'requisicao_links__requisicao__fluxos__processo')
+
+    dados = []
+    
+    for p in pedidos:
+        m2_processando = 0.0
+        m2_em_fila = 0.0
+        m2_concluido = 0.0
+        
+        volume_por_setor = {}
+        
+        for link in p.requisicao_links.all():
+            req = link.requisicao
+            vol = float(req.qt_mt or req.m2 or 0)
+            
+            if req.encerrado:
+                m2_concluido += float(req.m2 or req.qt_mt or 0)
+            else:
+                fluxos = list(req.fluxos.all())
+                fluxo_ativo = next((f for f in fluxos if not f.encerrado), None)
+                
+                if fluxo_ativo:
+                    m2_processando += vol
+                    proc_nome = fluxo_ativo.processo.nome if fluxo_ativo.processo else "Desconhecido"
+                else:
+                    m2_em_fila += vol
+                    # Assume que a fila está no último setor processado aguardando o próximo
+                    ultimo_fluxo = max((f for f in fluxos if f.dt_saida), key=lambda x: x.dt_saida, default=None)
+                    proc_nome = ultimo_fluxo.processo.nome if (ultimo_fluxo and ultimo_fluxo.processo) else "Aguardando Início"
+                
+                volume_por_setor[proc_nome] = volume_por_setor.get(proc_nome, 0) + vol
+
+        # Identificar o setor com maior acúmulo como sendo o "Gargalo atual" deste pedido
+        gargalo_nome = "N/D"
+        if volume_por_setor:
+            gargalo_nome = max(volume_por_setor, key=volume_por_setor.get)
+            
+        m2_em_producao = m2_processando + m2_em_fila
+        
+        if m2_em_producao > 0 or m2_concluido > 0:
+            dados.append({
+                "id": p.pk,
+                "cd_pedido": p.cd_pedido,
+                "nr_contract": p.nr_contract or "",
+                "cliente": p.cliente or "",
+                "artigo": p.artigo or "",
+                "dt_programada": p.dt_programada.isoformat() if p.dt_programada else None,
+                "quantidade_pedida": float(p.quantidade or 0),
+                "m2_em_producao": m2_em_producao, # Total WIP (processando + fila)
+                "m2_processando": m2_processando,
+                "m2_em_fila": m2_em_fila,
+                "m2_concluido": m2_concluido,
+                "setor_gargalo": gargalo_nome,
+                # Pode futuramente ser puxado de uma config. Usando um fallback padrao de 80.
+                "capacidade_gargalo_m2h": 80 
+            })
+            
+    dados.sort(key=lambda x: x["m2_em_producao"], reverse=True)
+    return Response(dados)

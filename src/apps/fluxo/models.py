@@ -87,11 +87,11 @@ class Requisicao(models.Model):
     
     qt = models.BigIntegerField(('Qt'), default=0, null=True, blank=True)
     m2 = models.FloatField(('M²'), default=0, null=True, blank=True)
-    # am = models.FloatField(('AM'), default=0, null=True, blank=True)
-    # exp_qt = models.BigIntegerField(('Expediçao Qt'), default=0, null=True, blank=True)
-    # exp_m2 = models.FloatField(('Expediçao M²'), default=0, null=True, blank=True)
-    # exp_am = models.FloatField(('Expediçao AM'), default=0, null=True, blank=True)
-    # rend = models.FloatField(('Rendimento'), default=0, null=True, blank=True)
+    am = models.FloatField(('AM'), default=0, null=True, blank=True)
+    exp_qt = models.BigIntegerField(('Expediçao Qt'), default=0, null=True, blank=True)
+    exp_m2 = models.FloatField(('Expediçao M²'), default=0, null=True, blank=True)
+    exp_am = models.FloatField(('Expediçao AM'), default=0, null=True, blank=True)
+    rend = models.FloatField(('Rendimento'), default=0, null=True, blank=True)
     kg_blue = models.DecimalField(('KG/M² - BLUE'), max_digits=10, decimal_places=2, blank=True, null=True)
     seco = models.DecimalField(('KG/M² - SECO'), max_digits=10, decimal_places=2, blank=True, null=True)
     custo_requisicao_inicial = models.DecimalField(('Custo Kg Inicial'), max_digits=10, decimal_places=2, blank=True, null=True)
@@ -99,6 +99,8 @@ class Requisicao(models.Model):
     rendimento_custo = models.DecimalField(('Rendimento Custo'), max_digits=10, decimal_places=2, blank=True, null=True)
     pallet = models.CharField(('Pallet'), max_length=100, default=None, null=True, blank=True)
     obs = models.TextField(verbose_name="Observação", blank=True, null=True)
+
+    # Campos removidos: Classificação passou a ser dinâmica via Justificativa
 
     @classmethod
     def from_db(cls, db, field_names, values):
@@ -329,3 +331,23 @@ class Operador(models.Model):
         return self.usuario.first_name or self.usuario.username
 
 
+class Justificativa(models.Model):
+    nome = models.CharField(max_length=100, unique=True, verbose_name="Nome da Justificativa")
+    
+    def __str__(self):
+        return self.nome
+
+
+class RequisicaoJustificativa(models.Model):
+    requisicao = models.ForeignKey(Requisicao, on_delete=models.CASCADE, related_name='justificativas_registadas')
+    justificativa = models.ForeignKey(Justificativa, on_delete=models.PROTECT, related_name='uso_requisicao')
+    quantidade = models.IntegerField(default=0, verbose_name="Quantidade de Peças")
+    
+    # Campo calculado após sincronizar o encerramento, para o relatório
+    m2_proporcional = models.FloatField(default=0.0, verbose_name="M² Proporcional", blank=True, null=True)
+
+    class Meta:
+        unique_together = ('requisicao', 'justificativa')
+
+    def __str__(self):
+        return f"{self.requisicao.cd_requisicao} - {self.justificativa.nome}: {self.quantidade}"

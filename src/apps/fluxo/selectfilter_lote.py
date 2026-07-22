@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from rest_framework import serializers
 from .models import Processo, Requisicao, FluxoRequisicao, Pedido
 from datetime import datetime

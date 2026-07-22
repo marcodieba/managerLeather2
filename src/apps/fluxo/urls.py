@@ -11,6 +11,7 @@ router.register(r'processos', views.ProcessoViewSet)
 router.register(r'requisicoes', views.RequisicaoViewSet)
 router.register(r'fluxorequisicoes', views.FluxoRequisicaoViewSet)
 router.register(r'operadores', views.OperadorViewSet)
+router.register(r'justificativas', views.JustificativaViewSet)
 
 urlpatterns = [
     # ---------------------------------------------------------
@@ -42,4 +43,6 @@ urlpatterns = [
     
     path('v1/auth/logout/', api_views.api_logout, name='api_v1_auth_logout'),
     path('v1/auth/me/', api_views.api_me, name='api_v1_auth_me'),
+    
+    path('v1/sync-ordens-servico/', api_views.api_sync_ordens_servico, name='api_v1_sync_ordens_servico'),
 ]

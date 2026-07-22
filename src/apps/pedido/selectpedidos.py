@@ -4,7 +4,7 @@
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 import pymssql
-import sqlite3
+from django.db import connection, transaction
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -142,10 +142,6 @@ class SelectPedidos(object):
         return rows
 
     def dbsqlite(self):
-        connsqlite = sqlite3.connect(BASE_DIR.joinpath('../core/db.sqlite3'))
-        connsqlite.execute("PRAGMA journal_mode=WAL;")  # evita locks
-        cursorsqlite = connsqlite.cursor()
-
         print("Buscando dados do Marca Evolution...")
         query_set = self.pedidos_marca()
 
@@ -153,136 +149,124 @@ class SelectPedidos(object):
         print(f"  → {len(pedidos_remotos_map)} pedidos encontrados no SQL Server.")
 
         print("Buscando dados do banco local (SQLite)...")
-        try:
-            tabela = cursorsqlite.execute(
-                'SELECT cd_pedido, cliente, cidade, uf, nr_pedido_interno, nr_contract, selecao, artigo, '
-                'dt_pedido, produto, quantidade, quantidade_entregue, dt_programada, fechado, '
-                'espessura, unidade_medida FROM pedido_pedido ORDER BY nr_contract'
-            )
-            pedidos_locais_map = {item[0]: item for item in tabela.fetchall()}
-        except sqlite3.OperationalError as e:
-            print(f"  ❌ ERRO ao ler tabela pedido_pedido: {e}")
-            connsqlite.close()
-            return
+        
+        # BLINDAGEM DO DJANGO APLICADA AQUI
+        with transaction.atomic():
+            with connection.cursor() as cursorsqlite:
+                try:
+                    cursorsqlite.execute(
+                        'SELECT cd_pedido, cliente, cidade, uf, nr_pedido_interno, nr_contract, selecao, artigo, '
+                        'dt_pedido, produto, quantidade, quantidade_entregue, dt_programada, fechado, '
+                        'espessura, unidade_medida FROM pedido_pedido ORDER BY nr_contract'
+                    )
+                    pedidos_locais_map = {item[0]: item for item in cursorsqlite.fetchall()}
+                except Exception as e:
+                    print(f"  ❌ ERRO ao ler tabela pedido_pedido: {e}")
+                    return
 
-        print(f"  → {len(pedidos_locais_map)} pedidos encontrados no SQLite.")
+                print(f"  → {len(pedidos_locais_map)} pedidos encontrados no SQLite.")
 
-        lista_para_inserir = []
-        lista_para_atualizar = []
-        lista_para_fechar = []
+                lista_para_inserir = []
+                lista_para_atualizar = []
+                lista_para_fechar = []
 
-        print("Comparando bancos de dados...")
+                print("Comparando bancos de dados...")
 
-        for cd_pedido, dados_remotos in pedidos_remotos_map.items():
-            dados = list(dados_remotos)
-            # print(lista_para_atualizar)
-            # --- AJUSTE 3: Cálculo de precisão decimal no Python ---
-            pes2_bruto = Decimal(str(dados[9] or 0.0))
-            qtd_entregue = (pes2_bruto / Decimal('10.764')).quantize(Decimal('0.000'), rounding=ROUND_HALF_UP)
-            
-            # Converte datas com segurança
-            dados[6]  = self._formatar_dt(dados[6])   # dt_pedido
-            dados[8]  = float(dados[8] or 0.0)         # quantidade
-            dados[9]  = float(qtd_entregue)            # quantidade_entregue (CORRIGIDO)
-            dados[10] = self._formatar_dt(dados[10])   # dt_programada
-            dados[11] = self._formatar_dt(dados[11])   # dt_programada
-            dados_tupla = tuple(dados)
-
-            if cd_pedido not in pedidos_locais_map:
-                lista_para_inserir.append((
-                    dados_tupla[0],   # cd_pedido
-                    dados_tupla[1],   # cliente
-                    dados_tupla[15],  # Cidade
-                    dados_tupla[16],  # UF
-                    dados_tupla[2],   # nr_pedido_interno
-                    dados_tupla[17],  # cod. Pedido Cliente
-                    dados_tupla[3],   # nr_contract
-                    dados_tupla[4],   # selecao
-                    dados_tupla[5],   # artigo
-                    dados_tupla[6],   # dt_pedido
-                    dados_tupla[7],   # produto
-                    dados_tupla[8],   # quantidade
-                    dados_tupla[9],   # quantidade_entregue (AGORA COM VALOR REAL)
-                    dados_tupla[10],  # dt_programada
-                    dados_tupla[11],  # dt_embarque
-                    0,                # fechado
-                    dados_tupla[13],  # espessura
-                    dados_tupla[14],  # unidade_medida
+                for cd_pedido, dados_remotos in pedidos_remotos_map.items():
+                    dados = list(dados_remotos)
+                    # --- AJUSTE 3: Cálculo de precisão decimal no Python ---
+                    pes2_bruto = Decimal(str(dados[9] or 0.0))
+                    qtd_entregue = (pes2_bruto / Decimal('10.764')).quantize(Decimal('0.000'), rounding=ROUND_HALF_UP)
                     
-                ))
-            else:
-                dados_locais = pedidos_locais_map[cd_pedido]
-                if self._registros_sao_diferentes(dados_tupla, dados_locais):
-                    # --- AJUSTE 4: Incluído quantidade_entregue no UPDATE ---
-                    lista_para_atualizar.append((
-                        dados_tupla[1],   # cliente
-                        # dados_tupla[15],  # Cidade
-                        # dados_tupla[16],  # UF
-                        dados_tupla[3],   # nr_contract
-                        dados_tupla[4],   # selecao
-                        dados_tupla[5],   # artigo
-                        dados_tupla[7],   # produto
-                        dados_tupla[8],   # quantidade
-                        dados_tupla[9],   # quantidade_entregue (NOVO)
-                        dados_tupla[10],  # dt_programada
-                        dados_tupla[11],  # dt_embarque
-                        dados_tupla[13],  # espessura
-                        dados_tupla[14],  # unidade_medida
-                        cd_pedido,        # WHERE
-                    ))
+                    # Converte datas com segurança
+                    dados[6]  = self._formatar_dt(dados[6])   # dt_pedido
+                    dados[8]  = float(dados[8] or 0.0)         # quantidade
+                    dados[9]  = float(qtd_entregue)            # quantidade_entregue (CORRIGIDO)
+                    dados[10] = self._formatar_dt(dados[10])   # dt_programada
+                    dados[11] = self._formatar_dt(dados[11])   # dt_programada
+                    dados_tupla = tuple(dados)
 
-        for cd_pedido_local in pedidos_locais_map:
-            if cd_pedido_local not in pedidos_remotos_map:
-                lista_para_fechar.append((1, cd_pedido_local))
+                    if cd_pedido not in pedidos_locais_map:
+                        lista_para_inserir.append((
+                            dados_tupla[0],   # cd_pedido
+                            dados_tupla[1],   # cliente
+                            dados_tupla[15],  # Cidade
+                            dados_tupla[16],  # UF
+                            dados_tupla[2],   # nr_pedido_interno
+                            dados_tupla[17],  # cod. Pedido Cliente
+                            dados_tupla[3],   # nr_contract
+                            dados_tupla[4],   # selecao
+                            dados_tupla[5],   # artigo
+                            dados_tupla[6],   # dt_pedido
+                            dados_tupla[7],   # produto
+                            dados_tupla[8],   # quantidade
+                            dados_tupla[9],   # quantidade_entregue (AGORA COM VALOR REAL)
+                            dados_tupla[10],  # dt_programada
+                            dados_tupla[11],  # dt_embarque
+                            0,                # fechado
+                            dados_tupla[13],  # espessura
+                            dados_tupla[14],  # unidade_medida
+                        ))
+                    else:
+                        dados_locais = pedidos_locais_map[cd_pedido]
+                        if self._registros_sao_diferentes(dados_tupla, dados_locais):
+                            # --- AJUSTE 4: Incluído quantidade_entregue no UPDATE ---
+                            lista_para_atualizar.append((
+                                dados_tupla[1],   # cliente
+                                dados_tupla[3],   # nr_contract
+                                dados_tupla[4],   # selecao
+                                dados_tupla[5],   # artigo
+                                dados_tupla[7],   # produto
+                                dados_tupla[8],   # quantidade
+                                dados_tupla[9],   # quantidade_entregue (NOVO)
+                                dados_tupla[10],  # dt_programada
+                                dados_tupla[11],  # dt_embarque
+                                dados_tupla[13],  # espessura
+                                dados_tupla[14],  # unidade_medida
+                                cd_pedido,        # WHERE
+                            ))
 
-        if not any([lista_para_inserir, lista_para_atualizar, lista_para_fechar]):
-            print("✅ Nenhuma alteração detectada. Banco local já sincronizado.")
-            connsqlite.close()
-            return
+                for cd_pedido_local in pedidos_locais_map:
+                    if cd_pedido_local not in pedidos_remotos_map:
+                        lista_para_fechar.append((1, cd_pedido_local))
 
-        try:
-            if lista_para_inserir:
-                print(f"  → Inserindo {len(lista_para_inserir)} novos pedidos...")
-                cursorsqlite.executemany("""
-                    INSERT INTO pedido_pedido
-                        (cd_pedido, cliente, cidade, uf, nr_pedido_interno, nr_pedido_cliente, nr_contract, selecao, artigo,
-                         dt_pedido, produto, quantidade, quantidade_entregue, dt_programada, dt_embarque,
-                         fechado, espessura, unidade_medida)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, lista_para_inserir)
+                if not any([lista_para_inserir, lista_para_atualizar, lista_para_fechar]):
+                    print("✅ Nenhuma alteração detectada. Banco local já sincronizado.")
+                    return
 
-            if lista_para_atualizar:
-                print(f"  → Atualizando {len(lista_para_atualizar)} pedidos modificados...")
-                # --- AJUSTE 5: Query SQL atualizada para incluir a coluna quantidade_entregue ---
-                cursorsqlite.executemany("""
-                    UPDATE pedido_pedido
-                    SET cliente=?, nr_contract=?, selecao=?, artigo=?, produto=?,
-                        quantidade=?, quantidade_entregue=?, dt_programada=?, dt_embarque=?, espessura=?, unidade_medida=?
-                    WHERE cd_pedido = ?
-                """, lista_para_atualizar)
+                try:
+                    if lista_para_inserir:
+                        print(f"  → Inserindo {len(lista_para_inserir)} novos pedidos...")
+                        # NOTA: ? substituídos por %s
+                        cursorsqlite.executemany("""
+                            INSERT INTO pedido_pedido
+                                (cd_pedido, cliente, cidade, uf, nr_pedido_interno, nr_pedido_cliente, nr_contract, selecao, artigo,
+                                 dt_pedido, produto, quantidade, quantidade_entregue, dt_programada, dt_embarque,
+                                 fechado, espessura, unidade_medida)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """, lista_para_inserir)
 
-            if lista_para_fechar:
-                print(f"  → Fechando {len(lista_para_fechar)} pedidos antigos...")
-                cursorsqlite.executemany("""
-                    UPDATE pedido_pedido SET fechado = ? WHERE cd_pedido = ?
-                """, lista_para_fechar)
+                    if lista_para_atualizar:
+                        print(f"  → Atualizando {len(lista_para_atualizar)} pedidos modificados...")
+                        # NOTA: ? substituídos por %s
+                        cursorsqlite.executemany("""
+                            UPDATE pedido_pedido
+                            SET cliente=%s, nr_contract=%s, selecao=%s, artigo=%s, produto=%s,
+                                quantidade=%s, quantidade_entregue=%s, dt_programada=%s, dt_embarque=%s, espessura=%s, unidade_medida=%s
+                            WHERE cd_pedido = %s
+                        """, lista_para_atualizar)
 
-            connsqlite.commit()
-            print("✅ Sincronização concluída com sucesso!")
+                    if lista_para_fechar:
+                        print(f"  → Fechando {len(lista_para_fechar)} pedidos antigos...")
+                        # NOTA: ? substituídos por %s
+                        cursorsqlite.executemany("""
+                            UPDATE pedido_pedido SET fechado = %s WHERE cd_pedido = %s
+                        """, lista_para_fechar)
 
-        except sqlite3.IntegrityError as e:
-            connsqlite.rollback()
-            print(f"❌ ERRO de integridade (duplicidade/constraint): {e}")
-        except sqlite3.OperationalError as e:
-            connsqlite.rollback()
-            print(f"❌ ERRO operacional SQLite (schema/coluna?): {e}")
-        except Exception as e:
-            connsqlite.rollback()
-            print(f"❌ ERRO inesperado: {e}")
-        finally:
-            cursorsqlite.close()
-            connsqlite.close()
+                    print("✅ Sincronização concluída com sucesso!")
 
+                except Exception as e:
+                    print(f"❌ ERRO inesperado: {e}")
+                    raise e # O raise faz com que o transaction.atomic() perceba o erro e aplique um Rollback Seguro
 
-p = SelectPedidos()
-p.dbsqlite()
+# NOTA: As duas linhas que executavam o ficheiro sozinhos (p = SelectPedidos()...) foram removidas!

@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.conf import settings
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.conf.urls.static import static
 from src.apps.fluxo.views import busca_requisicao_ajax, ordem_servico_page
 from src.apps.pedido.views import dashboard_view
@@ -79,6 +79,9 @@ urlpatterns = [
     path("estoque_pq/", include("src.apps.estoque_pq.urls")),
     path('ordem-servico/', ordem_servico_page, name='ordem_servico_page'),
     path('busca/requisicao/', busca_requisicao_ajax, name='busca_requisicao_ajax'),
+
+    # 👇 ADICIONEI O ?: DENTRO DOS PARÊNTESES
+    re_path(r'^(?:pedidos-internos|login|leitor|fluxo|requisicao)/?$', dashboard_view, name='react_frontend'),
 ]
 
 if settings.DEBUG:
