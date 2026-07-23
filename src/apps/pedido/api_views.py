@@ -716,7 +716,7 @@ def api_pedidos_dashboard_producao(request):
     pedidos = Pedido.objects.filter(
         Q(fechado=False) | Q(fechado__isnull=True),
         requisicao_links__isnull=False
-    ).distinct().prefetch_related('requisicao_links__requisicao', 'requisicao_links__requisicao__fluxos__processo')
+    ).distinct().prefetch_related('requisicao_links__requisicao', 'requisicao_links__requisicao__fluxos__processo', 'requisicao_links__requisicao__artigo_padrao__roteiros')
 
     dados = []
     
@@ -732,21 +732,53 @@ def api_pedidos_dashboard_producao(request):
             vol = float(req.qt_mt or req.m2 or 0)
             
             if req.encerrado:
-                m2_concluido += float(req.m2 or req.qt_mt or 0)
+                m2_concluido += vol
             else:
                 fluxos = list(req.fluxos.all())
+                
+                # Definir Total de Processos Esperados
+                total_esperado = req.artigo_padrao.roteiros.count() if req.artigo_padrao else 0
+                if total_esperado <= 0:
+                    # Fallback: conta processos únicos já registrados
+                    unicos = len(set(f.processo_id for f in fluxos if f.processo_id))
+                    total_esperado = unicos + 1 # +1 pois se não encerrou, no mínimo tem mais um
+                    if total_esperado <= 0:
+                        total_esperado = 1
+                
+                # Calcular quantos processos únicos já foram concluídos
+                processos_encerrados = set()
+                processos_abertos = set()
+                for f in fluxos:
+                    if f.processo_id:
+                        if f.encerrado:
+                            processos_encerrados.add(f.processo_id)
+                        else:
+                            processos_abertos.add(f.processo_id)
+                
+                # Um processo é dado como concluído se tem registro fechado e nenhum aberto
+                processos_totalmente_concluidos = len(processos_encerrados - processos_abertos)
+                
+                # Fração de progresso deste lote específico
+                fracao_concluida = min(processos_totalmente_concluidos / total_esperado, 1.0)
+                
+                # Volume parcial concluído e volume parcial que continua WIP
+                vol_concluido_parcial = vol * fracao_concluida
+                vol_restante = vol - vol_concluido_parcial
+                
+                m2_concluido += vol_concluido_parcial
+                
                 fluxo_ativo = next((f for f in fluxos if not f.encerrado), None)
                 
                 if fluxo_ativo:
-                    m2_processando += vol
+                    m2_processando += vol_restante
                     proc_nome = fluxo_ativo.processo.nome if fluxo_ativo.processo else "Desconhecido"
                 else:
-                    m2_em_fila += vol
+                    m2_em_fila += vol_restante
                     # Assume que a fila está no último setor processado aguardando o próximo
                     ultimo_fluxo = max((f for f in fluxos if f.dt_saida), key=lambda x: x.dt_saida, default=None)
                     proc_nome = ultimo_fluxo.processo.nome if (ultimo_fluxo and ultimo_fluxo.processo) else "Aguardando Início"
                 
-                volume_por_setor[proc_nome] = volume_por_setor.get(proc_nome, 0) + vol
+                volume_por_setor[proc_nome] = volume_por_setor.get(proc_nome, 0) + vol_restante
 
         # Identificar o setor com maior acúmulo como sendo o "Gargalo atual" deste pedido
         gargalo_nome = "N/D"

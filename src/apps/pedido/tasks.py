@@ -7,7 +7,7 @@ from .selectformula import SelectFormula
 def sync_pedidos_task():
     """Roda a sincronização de pedidos em background"""
     sincronizador = SelectPedidos()
-    sincronizador.executar() # Ajuste para o método que inicia o seu script
+    sincronizador.pedidos_marca()
 
 @shared_task
 def sync_formulas_task():

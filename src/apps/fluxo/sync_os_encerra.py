@@ -1,4 +1,5 @@
 import pymssql
+# pyrefly: ignore [missing-import]
 from django.utils import timezone
 from datetime import timedelta
 from src.apps.fluxo.models import Requisicao

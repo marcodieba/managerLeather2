@@ -165,7 +165,7 @@ class SelectRequisicao(object):
                 padrao_refilo = re.compile(r'^:\d+$')
                 
                 for cd_req in query_set:
-                    data = date_now
+                    data = datetime.datetime.now()
 
                     cd_requisicao = cd_req[0]
                     dt_requisicao = cd_req[1].strftime('%Y-%m-%d %H:%M:%S') if cd_req[1] else None
@@ -174,7 +174,7 @@ class SelectRequisicao(object):
                     quantidade = cd_req[10]    # total_pc
                     ficha = cd_req[7]          # Cd_Observacoes
                     fulao = cd_req[8]          # Fulao
-                    modificado = date_now
+                    modificado = datetime.datetime.now()
                     encerrado = 0
                     cd_pallet = cd_req[9]      # Pallet_Refila
                     qt_mt = cd_req[6]          # Total_Pes2
@@ -313,7 +313,6 @@ class SelectRequisicao(object):
                                     )
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s )
                                     ON CONFLICT(cd_requisicao) DO UPDATE SET
-                                        data = excluded.data,
                                         dt_requisicao = excluded.dt_requisicao,
                                         lote = excluded.lote,
                                         artigo = excluded.artigo,
@@ -326,20 +325,6 @@ class SelectRequisicao(object):
                                         qt_mt = excluded.qt_mt,
                                         kg_blue = excluded.kg_blue,
                                         setor = excluded.setor
-                                    WHERE 
-                                        data != excluded.data OR
-                                        cd_requisicao != excluded.cd_requisicao OR
-                                        dt_requisicao != excluded.dt_requisicao OR
-                                        lote != excluded.lote OR
-                                        artigo != excluded.artigo OR
-                                        quantidade != excluded.quantidade OR
-                                        ficha != excluded.ficha OR
-                                        fulao != excluded.fulao OR
-                                        modificado != excluded.modificado OR
-                                        pallet != excluded.pallet OR
-                                        qt_mt != excluded.qt_mt OR
-                                        kg_blue != excluded.kg_blue OR
-                                        setor != excluded.setor
                                          
                                 """, req_date + [setor])
 

@@ -23,12 +23,14 @@ urlpatterns = [
     # ROTAS LEGADAS (Manter ativas até o React substituir o HTML)
     # ---------------------------------------------------------
     path("imprimir/", views.imprimir_rendimento_view, name="imprimir_rendimento"),
+    path("imprimir/maquina/", views.imprimir_maquina_view, name="imprimir_maquina"),
     path('ordem-servico/', views.ordem_servico_page, name='ordem_servico_page'),
     path('busca/requisicao/', views.busca_requisicao_ajax, name='busca_requisicao_ajax'),
     path('resumo-lotes/', views.resumo_lotes_ativos_view, name='resumo_lotes'),
     
     # API EXCELENTE JÁ EXISTENTE
     path('movimentacao/qrcode/', views.ler_qrcode_movimentacao, name='ler_qrcode'),
+    path('movimentacao/ajustar_anterior/', views.ajustar_processo_anterior, name='ajustar_anterior'),
     
     # ---------------------------------------------------------
     # NOVAS APIS PARA O REACT
@@ -37,6 +39,7 @@ urlpatterns = [
     path('v1/resumo-lotes/', api_views.api_resumo_lotes_ativos, name='api_v1_resumo_lotes'),
     path('v1/relatorio-rendimento/', api_views.api_imprimir_rendimento, name='api_v1_imprimir_rendimento'),
     path('v1/calcular-ordem-servico/', api_views.api_calcular_ordem_servico, name='api_v1_calcular_ordem_servico'),
+    path('v1/leitor/requisicao-info/<str:cd_requisicao>/', api_views.api_leitor_requisicao_info, name='api_v1_leitor_requisicao_info'),
     
     # ADICIONE ESTA LINHA EM FALTA ABAIXO: 👇
     path('v1/auth/login/', api_views.api_login, name='api_v1_auth_login'),
@@ -45,4 +48,5 @@ urlpatterns = [
     path('v1/auth/me/', api_views.api_me, name='api_v1_auth_me'),
     
     path('v1/sync-ordens-servico/', api_views.api_sync_ordens_servico, name='api_v1_sync_ordens_servico'),
+    path('v1/sync-selectrequisicao/', api_views.api_sync_selectrequisicao, name='api_v1_sync_selectrequisicao'),
 ]

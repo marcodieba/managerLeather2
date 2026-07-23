@@ -17,6 +17,7 @@ from .serializers import RequisicaoSerializer, OperadorSerializer
 from .views import OrdemServicoSQL, extrair_marca_couro
 from .select_custo_formula import custo_requisicao
 from src.apps.fluxo.sync_os_encerra import SyncOrdemServico
+from .selectrequisicao import SelectRequisicao
 
 
 # --- FUNÇÕES AUXILIARES DE TEMPO ---
@@ -68,6 +69,50 @@ def api_busca_requisicao(request):
         for req in requisicoes
     ]
     return Response(resultados)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_leitor_requisicao_info(request, cd_requisicao):
+    """Retorna informações da requisição para o Leitor (quantidade do processo anterior)"""
+    try:
+        req = Requisicao.objects.get(cd_requisicao=cd_requisicao)
+        processo_id = request.query_params.get("processo_id")
+        
+        # 1. Obter a quantidade total disponível do processo ANTERIOR
+        # Encontra o último processo diferente do atual
+        ultimo_fluxo_diferente = None
+        if processo_id:
+            ultimo_fluxo_diferente = req.fluxos.exclude(processo_id=processo_id).order_by('-id').first()
+        else:
+            ultimo_fluxo_diferente = req.fluxos.order_by('-id').first()
+            
+        if ultimo_fluxo_diferente:
+            processo_anterior_id = ultimo_fluxo_diferente.processo_id
+            # Soma TODAS as partes que entraram no processo anterior (abertas e fechadas)
+            qtd_anterior = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_anterior_id))
+        else:
+            # Se não houver processo anterior, a quantidade base é a original do lote
+            qtd_anterior = float(req.quantidade or req.qt or 0)
+            
+        # 2. Obter a quantidade JÁ PROCESSADA no processo ATUAL (abertas e fechadas)
+        qtd_atual = 0
+        if processo_id:
+            qtd_atual = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_id))
+            
+        # 3. Calcular a diferença
+        qtd_sugerida = qtd_anterior - qtd_atual
+        if qtd_sugerida < 0:
+            qtd_sugerida = 0
+            
+        return Response({
+            "cd_requisicao": req.cd_requisicao,
+            "quantidade": qtd_sugerida
+        })
+    except Requisicao.DoesNotExist:
+        return Response({"erro": "Requisição não encontrada"}, status=404)
+    except Exception as e:
+        return Response({"erro": str(e)}, status=500)
 
 
 @api_view(['GET'])
@@ -346,3 +391,17 @@ def api_sync_ordens_servico(request):
 def api_logout(request):
     logout(request)
     return Response({"detail": "Logout successful."})
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def api_sync_selectrequisicao(request):
+    try:
+        sincronizador = SelectRequisicao()
+        sincronizador.post_requisicao()
+        return Response({'sucesso': True, 'mensagem': 'Requisições sincronizadas com sucesso!'})
+    except Exception as e:
+        return Response({
+            'sucesso': False,
+            'mensagem': f'Erro na sincronização: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -200,6 +200,114 @@ class OrdemServicoSQL:
         return results
 
 
+# -------------------------------------------------------------------
+# VIEW PARA IMPRESSÃO DE RELATÓRIO DE MÁQUINA
+# -------------------------------------------------------------------
+def imprimir_maquina_view(request):
+    from datetime import datetime, date, timedelta
+    from src.apps.fluxo.models import Processo, Requisicao, FluxoRequisicao
+
+    processo_id = request.GET.get("processo_id")
+    if not processo_id:
+        return render(request, "maquinas/impressao.html", {"erro": "Processo não informado"})
+
+    try:
+        processo = Processo.objects.get(id=processo_id)
+    except Processo.DoesNotExist:
+        return render(request, "maquinas/impressao.html", {"erro": "Máquina não encontrada"})
+
+    # Hoje e início do turno (ex: 06:00)
+    hoje = date.today()
+    agora = datetime.now()
+    inicio_dia = datetime.combine(hoje, datetime.min.time())
+    inicio_turno = inicio_dia + timedelta(hours=6) if agora.hour >= 6 else inicio_dia - timedelta(hours=18)
+
+    # 1. Obter todos os fluxos que passaram por esta máquina
+    fluxos_maquina = FluxoRequisicao.objects.filter(processo=processo).select_related('requisicao')
+
+    # Métricas
+    wip_lotes = []
+    produzido_hoje_m2 = 0
+    produzido_hoje_pcs = 0
+    produzido_turno_m2 = 0
+    produzido_turno_pcs = 0
+    tempo_total_segundos = 0
+    lotes_finalizados_count = 0
+
+    for f in fluxos_maquina:
+        req = f.requisicao
+        is_encerrado = f.encerrado
+        
+        # Qtds (Tratar valores None)
+        req_m2 = float(req.m2 or req.qt_mt or 0) if req.encerrado else float(req.qt_mt or req.m2 or 0)
+        req_pcs = int(req.qt or req.quantidade or 0) if req.encerrado else int(req.quantidade or req.qt or 0)
+        
+        pcs_fluxo = int(f.quantidade or 0) if f.quantidade else req_pcs
+        metros_fluxo = (req_m2 / req_pcs * pcs_fluxo) if req_pcs > 0 else req_m2
+
+        # 1.1 WIP (Em Processo)
+        if not is_encerrado:
+            # Calcular tempo esperando
+            delta_espera = agora - (f.dt_processo.replace(tzinfo=None) if f.dt_processo else agora)
+            horas_espera = delta_espera.total_seconds() / 3600
+            
+            wip_lotes.append({
+                "cd_requisicao": req.cd_requisicao,
+                "lote": req.lote,
+                "artigo": req.artigo,
+                "quantidade": pcs_fluxo,
+                "m2": round(metros_fluxo, 2),
+                "tempo_espera": f"{horas_espera:.1f}h"
+            })
+            continue
+
+        # 1.2 Finalizados
+        dt_saida = f.dt_saida.replace(tzinfo=None) if f.dt_saida else (f.dt_processo.replace(tzinfo=None) if f.dt_processo else None)
+        if dt_saida:
+            lotes_finalizados_count += 1
+            dt_entrada = f.dt_processo.replace(tzinfo=None) if f.dt_processo else dt_saida
+            tempo_total_segundos += max(0, (dt_saida - dt_entrada).total_seconds())
+            
+            # Se terminou hoje
+            if dt_saida.date() == hoje:
+                produzido_hoje_m2 += metros_fluxo
+                produzido_hoje_pcs += pcs_fluxo
+                
+            # Se terminou no turno atual
+            if dt_saida >= inicio_turno:
+                produzido_turno_m2 += metros_fluxo
+                produzido_turno_pcs += pcs_fluxo
+
+    # 2. Cálculos Finais (KPIs)
+    velocidade_media = 0
+    tempo_medio_lote_min = 0
+    horas_totais = tempo_total_segundos / 3600
+
+    if lotes_finalizados_count > 0:
+        tempo_medio_lote_min = (tempo_total_segundos / lotes_finalizados_count) / 60
+        # Aproximação simples para velocidade (Se temos o histórico completo)
+        if horas_totais > 0:
+            velocidade_media = produzido_hoje_m2 / horas_totais # Apenas uma métrica aproximada para o relatório
+
+    context = {
+        "processo": processo,
+        "hoje": hoje,
+        "hora_impressao": agora.strftime("%H:%M:%S"),
+        "kpis": {
+            "producao_hoje_m2": round(produzido_hoje_m2, 2),
+            "producao_hoje_pcs": produzido_hoje_pcs,
+            "producao_turno_m2": round(produzido_turno_m2, 2),
+            "producao_turno_pcs": produzido_turno_pcs,
+            "wip_qtd": sum(l["quantidade"] for l in wip_lotes),
+            "wip_m2": round(sum(l["m2"] for l in wip_lotes), 2),
+            "tempo_medio_min": round(tempo_medio_lote_min, 1),
+        },
+        "wip_lotes": wip_lotes,
+    }
+
+    return render(request, "maquinas/impressao.html", context)
+
+
 def extrair_marca_couro(valor):
     partes = (valor or "").split(",", 1)
     marca_couro = partes[1] if len(partes) > 1 else partes[0]
@@ -358,34 +466,97 @@ def ler_qrcode_movimentacao(request):
 
     agora = timezone.now()
 
-    # --------------------------------------------------------------------------------
-    # 1. RASTREABILIDADE LIVRE (Sem Bloqueio de Roteiro Fixo)
-    # O sistema procura onde estão os lotes "em aberto" para os conseguir consumir
-    # --------------------------------------------------------------------------------
-    fluxos_para_consumir = list(requisicao.fluxos.filter(encerrado=False).order_by('dt_processo', 'id'))
-    total_disponivel = sum(f.quantidade for f in fluxos_para_consumir if f.quantidade)
-    
-    if total_disponivel == 0:
-        # Se não há peças abertas, pega o último processo que ela passou para registrar o erro
-        ultimo_fluxo = requisicao.fluxos.order_by('-dt_saida', '-id').first()
-        processo_anterior = ultimo_fluxo.processo.nome if ultimo_fluxo and ultimo_fluxo.processo else "Desconhecido"
-        
-        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Erro na Contagem anterior no processo {processo_anterior}. Lidos {qtd_recebida} mas havia 0 disponíveis."
-        requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
-        requisicao.save()
+    forcar_ajuste = request.data.get('forcar_ajuste', False)
 
-    # Se o operador tentar puxar mais peças do que o lote total disponível
-    elif qtd_recebida > total_disponivel:
-        resumo_atrasados = {}
-        for f in fluxos_para_consumir:
-            nome_proc = f.processo.nome if f.processo else "Desconhecido"
-            resumo_atrasados[nome_proc] = resumo_atrasados.get(nome_proc, 0) + (f.quantidade or 0)
+    # --------------------------------------------------------------------------------
+    # 1. RASTREABILIDADE LIVRE E AJUSTE DE CONTAGEM
+    # --------------------------------------------------------------------------------
+    is_primeiro_processo = not requisicao.fluxos.exists()
+
+    if is_primeiro_processo:
+        # Primeiro apontamento da requisição! A quantidade base é a da requisição.
+        total_disponivel = float(requisicao.quantidade or requisicao.qt or 0)
         
-        texto_atrasados = " e ".join([proc for proc, qtd in resumo_atrasados.items() if qtd > 0])
+        if qtd_recebida > total_disponivel + 12 and not forcar_ajuste:
+            diferenca = qtd_recebida - total_disponivel
+            return Response({
+                'sucesso': False, 
+                'precisa_confirmacao': True, 
+                'diferenca': diferenca,
+                'qtd_anterior': total_disponivel,
+                'total_requisicao': total_disponivel,
+                'erro': f'A quantidade recebida excede a requisição em {int(diferenca)} peças.'
+            }, status=400)
+            
+        fluxos_para_consumir = []
+    else:
+        fluxos_para_consumir = list(requisicao.fluxos.filter(encerrado=False).order_by('dt_processo', 'id'))
+        total_disponivel = sum(f.quantidade for f in fluxos_para_consumir if f.quantidade)
         
-        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Erro na Contagem anterior no processo {texto_atrasados}. Lidos {qtd_recebida} mas havia {total_disponivel}."
-        requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
-        requisicao.save()
+        if total_disponivel == 0:
+            # Se não há peças abertas, pega o último processo que ela passou para registrar o erro
+            ultimo_fluxo = requisicao.fluxos.order_by('-dt_saida', '-id').first()
+            processo_anterior = ultimo_fluxo.processo.nome if ultimo_fluxo and ultimo_fluxo.processo else "Desconhecido"
+            
+            if qtd_recebida > 12 and not forcar_ajuste:
+                qtd_ant = sum((f.quantidade or 0) for f in requisicao.fluxos.filter(processo=ultimo_fluxo.processo)) if ultimo_fluxo else 0
+                return Response({
+                    'sucesso': False, 
+                    'precisa_confirmacao': True, 
+                    'diferenca': qtd_recebida,
+                    'qtd_anterior': qtd_ant,
+                    'total_requisicao': float(requisicao.quantidade or requisicao.qt or 0),
+                    'erro': f'A quantidade recebida excede o limite permitido (todas as peças anteriores já foram consumidas).'
+                }, status=400)
+            
+            nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste automático de contagem (+{qtd_recebida} peças) no processo {processo_anterior}."
+            requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+            requisicao.save()
+
+            if ultimo_fluxo:
+                novo_fluxo = FluxoRequisicao.objects.create(
+                    requisicao=requisicao,
+                    processo=ultimo_fluxo.processo,
+                    quantidade=qtd_recebida,
+                    dt_processo=agora,
+                    encerrado=False
+                )
+                fluxos_para_consumir = [novo_fluxo]
+                total_disponivel = qtd_recebida
+            else:
+                return Response({'sucesso': False, 'erro': 'Não há processo anterior para compensar a diferença.'}, status=400)
+
+        # Se o operador tentar puxar mais peças do que o lote total disponível
+        elif qtd_recebida > total_disponivel:
+            diferenca = qtd_recebida - total_disponivel
+            if diferenca > 12 and not forcar_ajuste:
+                # Soma a quantidade já registrada no processo anterior dos fluxos em aberto
+                ultimo_proc_id = fluxos_para_consumir[-1].processo_id if fluxos_para_consumir else None
+                qtd_ant = sum((f.quantidade or 0) for f in requisicao.fluxos.filter(processo_id=ultimo_proc_id)) if ultimo_proc_id else total_disponivel
+                return Response({
+                    'sucesso': False, 
+                    'precisa_confirmacao': True, 
+                    'diferenca': diferenca,
+                    'qtd_anterior': qtd_ant,
+                    'total_requisicao': float(requisicao.quantidade or requisicao.qt or 0),
+                    'erro': f'A quantidade recebida excede o limite permitido (diferença de +{diferenca} peças em relação ao disponível).'
+                }, status=400)
+                
+            ultimo_fluxo_aberto = fluxos_para_consumir[-1]
+            ultimo_fluxo_aberto.quantidade += diferenca
+            ultimo_fluxo_aberto.save()
+            total_disponivel += diferenca
+
+            resumo_atrasados = {}
+            for f in fluxos_para_consumir:
+                nome_proc = f.processo.nome if f.processo else "Desconhecido"
+                resumo_atrasados[nome_proc] = resumo_atrasados.get(nome_proc, 0) + (f.quantidade or 0)
+            
+            texto_atrasados = " e ".join([proc for proc, qtd in resumo_atrasados.items() if qtd > 0])
+            
+            nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste automático de contagem (+{diferenca} peças) no processo {texto_atrasados}."
+            requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+            requisicao.save()
 
     qtd_a_consumir = qtd_recebida
 
@@ -414,6 +585,11 @@ def ler_qrcode_movimentacao(request):
             if motivo_diferenca == 'PERDA':
                 proc_perda, _ = Processo.objects.get_or_create(nome="⚠️ PERDA / REFUGO")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_perda, quantidade=qtd_que_ficou, dt_processo=agora, dt_saida=agora, encerrado=True)
+            elif motivo_diferenca == 'ERRO_CONTAGEM':
+                # Removemos as peças a mais para a conta fechar, não criando fluxo residual
+                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Erro de contagem (-{qtd_que_ficou} peças) regularizado. Excesso removido."
+                requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+                requisicao.save()
             elif motivo_diferenca == 'REPROCESSO':
                 proc_rep, _ = Processo.objects.get_or_create(nome="♻️ AGUARDANDO REPROCESSO")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_rep, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
@@ -465,6 +641,99 @@ def ler_qrcode_movimentacao(request):
         'mensagem': f'✅ Entrada de {qtd_recebida} peças registada com sucesso no setor de {processo_atual.nome}!'
     })
 
+
+@csrf_exempt
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def ajustar_processo_anterior(request):
+    """
+    Endpoint para supervisor ajustar a quantidade no processo anterior,
+    quando um operador tenta inserir uma quantidade maior que o permitido.
+    """
+    cd_requisicao = request.data.get('cd_requisicao')
+    processo_id = request.data.get('processo_id')
+    nova_qtd_anterior = int(request.data.get('nova_qtd_anterior', 0))
+    
+    # Credenciais do supervisor
+    username = request.data.get('username')
+    password = request.data.get('password')
+    
+    if not cd_requisicao or not processo_id or not username or not password or nova_qtd_anterior <= 0:
+        return Response({'sucesso': False, 'erro': 'Dados incompletos.'}, status=400)
+        
+    # 1. Autenticação do Supervisor
+    from django.contrib.auth import authenticate
+    user = authenticate(username=username, password=password)
+    if user is None:
+        return Response({'sucesso': False, 'erro': 'Credenciais inválidas.'}, status=401)
+        
+    if not (user.is_staff or user.is_superuser):
+        return Response({'sucesso': False, 'erro': 'Utilizador não tem permissão de supervisor.'}, status=403)
+        
+    try:
+        requisicao = Requisicao.objects.get(cd_requisicao=cd_requisicao)
+        processo_atual = Processo.objects.get(id=processo_id)
+    except Exception:
+        return Response({'sucesso': False, 'erro': 'Requisição ou Processo não encontrados.'}, status=404)
+        
+    # 2. Localiza o fluxo anterior
+    is_primeiro_processo = not requisicao.fluxos.exists()
+    if is_primeiro_processo:
+        # Se é o primeiro processo, o ajuste na verdade é no total do lote (Requisicao)
+        requisicao.quantidade = nova_qtd_anterior
+        
+        agora = timezone.now()
+        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote total ajustado de {requisicao.quantidade} para {nova_qtd_anterior} pelo supervisor {user.username}."
+        requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+        requisicao.save()
+        
+        return Response({'sucesso': True, 'mensagem': 'Ajuste concluído com sucesso.'})
+    
+    # Se não é o primeiro processo, ajusta a quantidade dos fluxos abertos no processo anterior
+    fluxos_abertos = list(requisicao.fluxos.filter(encerrado=False).order_by('dt_processo', 'id'))
+    
+    if not fluxos_abertos:
+        # Se não há fluxos abertos, pega o último processo que encerrou e reabre/cria saldo
+        ultimo_fluxo = requisicao.fluxos.order_by('-dt_saida', '-id').first()
+        if not ultimo_fluxo:
+            return Response({'sucesso': False, 'erro': 'Histórico vazio, não é possível ajustar.'}, status=400)
+            
+        processo_anterior_id = ultimo_fluxo.processo_id
+    else:
+        processo_anterior_id = fluxos_abertos[-1].processo_id
+        
+    # Soma atual desse processo
+    fluxos_do_processo = requisicao.fluxos.filter(processo_id=processo_anterior_id)
+    soma_atual = sum(f.quantidade for f in fluxos_do_processo if f.quantidade)
+    
+    diferenca = nova_qtd_anterior - soma_atual
+    
+    agora = timezone.now()
+    if diferenca != 0:
+        if fluxos_abertos:
+            ultimo = fluxos_abertos[-1]
+            ultimo.quantidade += diferenca
+            ultimo.save()
+        else:
+            # Não tem fluxo aberto, cria um novo no processo anterior com o saldo adicional
+            FluxoRequisicao.objects.create(
+                requisicao=requisicao,
+                processo_id=processo_anterior_id,
+                quantidade=diferenca,
+                dt_processo=agora,
+                encerrado=False
+            )
+            
+        proc_ant = Processo.objects.filter(id=processo_anterior_id).first()
+        nome_proc = proc_ant.nome if proc_ant else "Desconhecido"
+        
+        sinal = "+" if diferenca > 0 else ""
+        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste manual ({sinal}{diferenca} peças) no processo {nome_proc} pelo supervisor {user.username}."
+        requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+        requisicao.save()
+        
+    return Response({'sucesso': True, 'mensagem': 'Ajuste concluído com sucesso.'})
 
 @staff_member_required
 def resumo_lotes_ativos_view(request):
