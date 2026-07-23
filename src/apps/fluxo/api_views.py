@@ -79,8 +79,7 @@ def api_leitor_requisicao_info(request, cd_requisicao):
         req = Requisicao.objects.get(cd_requisicao=cd_requisicao)
         processo_id = request.query_params.get("processo_id")
         
-        # 1. Obter a quantidade total disponível do processo ANTERIOR
-        # Encontra o último processo diferente do atual
+        # 1. Encontrar o último processo diferente do atual
         ultimo_fluxo_diferente = None
         if processo_id:
             ultimo_fluxo_diferente = req.fluxos.exclude(processo_id=processo_id).order_by('-id').first()
@@ -89,19 +88,20 @@ def api_leitor_requisicao_info(request, cd_requisicao):
             
         if ultimo_fluxo_diferente:
             processo_anterior_id = ultimo_fluxo_diferente.processo_id
-            # Soma TODAS as partes que entraram no processo anterior (abertas e fechadas)
+            # A quantidade base para o próximo setor é TUDO o que já entrou no setor anterior
             qtd_anterior = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_anterior_id))
         else:
-            # Se não houver processo anterior, a quantidade base é a original do lote
+            # Se não houver processo anterior (é a primeira máquina), a base é a requisição
             qtd_anterior = float(req.quantidade or req.qt or 0)
             
-        # 2. Obter a quantidade JÁ PROCESSADA no processo ATUAL (abertas e fechadas)
+        # 2. Obter a quantidade JÁ PROCESSADA no processo ATUAL
         qtd_atual = 0
         if processo_id:
             qtd_atual = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_id))
             
-        # 3. Calcular a diferença
+        # 3. Sugerir a diferença (apenas o que falta passar da máquina anterior para a atual)
         qtd_sugerida = qtd_anterior - qtd_atual
+        
         if qtd_sugerida < 0:
             qtd_sugerida = 0
             

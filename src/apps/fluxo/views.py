@@ -471,42 +471,47 @@ def ler_qrcode_movimentacao(request):
     # --------------------------------------------------------------------------------
     # 1. RASTREABILIDADE LIVRE E AJUSTE DE CONTAGEM
     # --------------------------------------------------------------------------------
-    is_primeiro_processo = not requisicao.fluxos.exists()
+    # Evita que o processo consuma as próprias peças (consumo recursivo)
+    fluxos_para_consumir = list(requisicao.fluxos.filter(encerrado=False).exclude(processo_id=processo_id).order_by('dt_processo', 'id'))
+    tem_outro_processo = requisicao.fluxos.exclude(processo_id=processo_id).exists()
 
-    if is_primeiro_processo:
-        # Primeiro apontamento da requisição! A quantidade base é a da requisição.
-        total_disponivel = float(requisicao.quantidade or requisicao.qt or 0)
+    if not tem_outro_processo:
+        # É o primeiro processo! A quantidade base é a da requisição, menos o que já entrou aqui.
+        total_requisicao = float(requisicao.quantidade or requisicao.qt or 0)
+        qtd_ja_entrou = sum((f.quantidade or 0) for f in requisicao.fluxos.filter(processo_id=processo_id))
+        saldo_disponivel = total_requisicao - qtd_ja_entrou
         
-        if qtd_recebida > total_disponivel + 12 and not forcar_ajuste:
-            diferenca = qtd_recebida - total_disponivel
+        if qtd_recebida > saldo_disponivel + 12 and not forcar_ajuste:
+            diferenca = qtd_recebida - saldo_disponivel
             return Response({
                 'sucesso': False, 
                 'precisa_confirmacao': True, 
                 'diferenca': diferenca,
-                'qtd_anterior': total_disponivel,
-                'total_requisicao': total_disponivel,
-                'erro': f'A quantidade recebida excede a requisição em {int(diferenca)} peças.'
+                'qtd_anterior': saldo_disponivel,
+                'total_requisicao': total_requisicao,
+                'erro': f'A quantidade recebida excede o saldo da requisição em {int(diferenca)} peças.'
             }, status=400)
             
+        # Não há fluxos anteriores para consumir, pois é o início da cadeia
         fluxos_para_consumir = []
+        total_disponivel = saldo_disponivel
     else:
-        fluxos_para_consumir = list(requisicao.fluxos.filter(encerrado=False).order_by('dt_processo', 'id'))
         total_disponivel = sum(f.quantidade for f in fluxos_para_consumir if f.quantidade)
         
         if total_disponivel == 0:
-            # Se não há peças abertas, pega o último processo que ela passou para registrar o erro
-            ultimo_fluxo = requisicao.fluxos.order_by('-dt_saida', '-id').first()
+            # Se não há peças abertas nos processos anteriores, significa que já foi tudo puxado
+            ultimo_fluxo = requisicao.fluxos.exclude(processo_id=processo_id).order_by('-dt_saida', '-id').first()
             processo_anterior = ultimo_fluxo.processo.nome if ultimo_fluxo and ultimo_fluxo.processo else "Desconhecido"
             
             if qtd_recebida > 12 and not forcar_ajuste:
-                qtd_ant = sum((f.quantidade or 0) for f in requisicao.fluxos.filter(processo=ultimo_fluxo.processo)) if ultimo_fluxo else 0
+                qtd_ant = sum((f.quantidade or 0) for f in requisicao.fluxos.filter(processo_id=ultimo_fluxo.processo_id)) if ultimo_fluxo else 0
                 return Response({
                     'sucesso': False, 
                     'precisa_confirmacao': True, 
                     'diferenca': qtd_recebida,
                     'qtd_anterior': qtd_ant,
                     'total_requisicao': float(requisicao.quantidade or requisicao.qt or 0),
-                    'erro': f'A quantidade recebida excede o limite permitido (todas as peças anteriores já foram consumidas).'
+                    'erro': f'A quantidade recebida excede o limite permitido (todas as peças já foram consumidas de {processo_anterior}).'
                 }, status=400)
             
             nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste automático de contagem (+{qtd_recebida} peças) no processo {processo_anterior}."
