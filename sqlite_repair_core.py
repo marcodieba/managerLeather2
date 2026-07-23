@@ -161,6 +161,24 @@ def _sqlite_cli_available() -> bool:
     return shutil.which("sqlite3") is not None
 
 
+def _dump_has_inline_errors(dump_path: str) -> bool:
+    """
+    O CLI `sqlite3 arquivo .dump` pode terminar com exit code 0 mesmo tendo
+    encontrado corrupção durante a extração — nesse caso ele escreve o erro
+    como comentário SQL dentro do próprio dump (ex.: linhas contendo
+    "/**** ERROR:" ou "Error: database disk image is malformed") e aborta
+    a extração daquele ponto em diante. Isso não derruba o processo, então
+    precisamos inspecionar o conteúdo, não só o exit code.
+    """
+    markers = ("/**** ERROR:", "Error: database disk image is malformed", "Error: near line")
+    try:
+        with open(dump_path, "r", errors="ignore") as f:
+            content = f.read()
+    except OSError:
+        return False
+    return any(m in content for m in markers)
+
+
 def dump_via_cli(src_path: str, dump_path: str, use_recover: bool = False) -> None:
     """
     Usa o CLI sqlite3 para gerar o dump. Prefere ".recover" quando o schema
@@ -386,60 +404,90 @@ def repair_database(
         else:
             report.log(f"REINDEX/VACUUM não resolveu: {issues[:5]}")
 
-        # 4. Reconstrução completa via dump
-        report.log("Tentativa 2: reconstrução completa via dump")
-        dump_path = os.path.join(tmp, "dump.sql")
-        new_db_path = os.path.join(tmp, "rebuilt.db")
+        # 4. Reconstrução completa via dump.
+        #
+        # IMPORTANTE: o CLI `sqlite3 arquivo .dump` pode terminar com exit
+        # code 0 mesmo quando encontrou corrupção durante a extração — ele
+        # escreve os erros como comentários SQL dentro do próprio dump e
+        # aborta a extração cedo, sem sinalizar falha no processo. Por isso
+        # NÃO paramos na primeira tentativa "sem erro de exit code": rodamos
+        # todas as estratégias disponíveis (.dump, .recover, iterdump em
+        # Python) e ficamos com a que efetivamente preservar mais dados.
+        report.log("Tentativa 2: reconstrução completa via dump (testando todas as estratégias)")
 
-        dumped = False
-        if _sqlite_cli_available():
-            for use_recover in (False, True):
-                try:
-                    dump_via_cli(backup_path, dump_path, use_recover=use_recover)
-                    dumped = True
-                    report.log(
-                        f"Dump via CLI ({'--recover' if use_recover else '.dump'}) ok"
-                    )
-                    break
-                except RepairError as e:
-                    report.log(f"Dump via CLI falhou ({e}); tentando próxima opção")
-        if not dumped:
+        candidates: list[tuple[str, str, dict[str, int | None]]] = []  # (estrategia, path, counts)
+
+        def _try_strategy(label: str, dump_fn, *dump_args) -> None:
+            dump_path = os.path.join(tmp, f"dump_{label}.sql")
+            new_db_path = os.path.join(tmp, f"rebuilt_{label}.db")
             try:
-                dump_via_python(backup_path, dump_path)
-                dumped = True
-                report.log("Dump via iterdump() (fallback Python) ok")
+                dump_fn(*dump_args, dump_path)
+            except (RepairError, sqlite3.DatabaseError) as e:
+                report.log(f"  [{label}] geração do dump falhou: {e}")
+                return
+
+            if _dump_has_inline_errors(dump_path):
+                report.log(
+                    f"  [{label}] dump gerado (exit ok), mas contém marcadores de erro "
+                    f"inline do sqlite3 (corrupção interrompeu a extração)"
+                )
+
+            try:
+                build_db_from_dump(dump_path, new_db_path)
+                ok, issues = integrity_check(new_db_path)
             except sqlite3.DatabaseError as e:
-                report.error = f"Não foi possível gerar dump: {e}"
-                report.log(report.error)
-                report.final_ok = False
-                return report
+                report.log(f"  [{label}] reconstrução/validação falhou: {e}")
+                return
 
-        try:
-            build_db_from_dump(dump_path, new_db_path)
-            ok, issues = integrity_check(new_db_path)
-        except sqlite3.DatabaseError as e:
-            ok, issues = False, [str(e)]
+            if not ok:
+                report.log(f"  [{label}] banco reconstruído não passou no integrity_check: {issues[:3]}")
+                return
 
-        if not ok:
-            report.error = f"Reconstrução falhou na validação final: {issues[:5]}"
+            counts = _safe_row_counts(new_db_path, report, f"candidato [{label}]")
+            candidates.append((label, new_db_path, counts))
+
+        if _sqlite_cli_available():
+            _try_strategy("dump_cli", lambda src, dst: dump_via_cli(src, dst, use_recover=False), backup_path)
+            _try_strategy("recover_cli", lambda src, dst: dump_via_cli(src, dst, use_recover=True), backup_path)
+        else:
+            report.log("  sqlite3 CLI não encontrado no PATH; pulando .dump/.recover via CLI")
+        _try_strategy("iterdump_python", dump_via_python, backup_path)
+
+        if not candidates:
+            report.error = "Nenhuma estratégia de reconstrução produziu um banco estruturalmente válido."
             report.log(report.error)
             report.log("Original mantido intocado. Backup preservado para investigação manual.")
             report.final_ok = False
             return report
 
-        candidate_counts = _safe_row_counts(new_db_path, report, "após reconstrução via dump")
-        loss, details = detect_data_loss(baseline_counts, candidate_counts)
+        # Escolhe o candidato com MENOS perda de dados (idealmente zero).
+        scored = []
+        for label, path, counts in candidates:
+            loss, details = detect_data_loss(baseline_counts, counts)
+            lost_rows = sum(
+                (baseline_counts.get(t) or 0) - (counts.get(t) or 0)
+                for t in baseline_counts
+                if baseline_counts.get(t) is not None
+            )
+            scored.append((lost_rows, loss, label, path, counts, details))
+            report.log(f"  [{label}] total de linhas recuperadas: {sum(v for v in counts.values() if v)}")
+
+        scored.sort(key=lambda x: x[0])  # menor perda primeiro
+        lost_rows, loss, label, new_db_path, candidate_counts, details = scored[0]
+
         report.candidate_counts = candidate_counts
         report.data_loss_detected = loss
         report.data_loss_details = details
+        report.log(f"Melhor candidato: [{label}] (linhas perdidas no total: {lost_rows})")
 
         if not loss or force:
             report.log(
-                "Reconstrução via dump resolveu o problema sem perda de dados detectada."
+                f"Reconstrução via {label} resolveu o problema sem perda de dados detectada."
                 if not loss else
-                "Perda de dados detectada, mas force=True: prosseguindo mesmo assim."
+                f"Perda de dados detectada mesmo no melhor candidato ({label}), "
+                "mas force=True: prosseguindo mesmo assim."
             )
-            report.strategy_used = "full_rebuild"
+            report.strategy_used = f"full_rebuild:{label}"
             report.forced = loss and force
             os.replace(new_db_path, db_path)
             report.replaced = True
@@ -447,11 +495,11 @@ def repair_database(
             return report
 
         report.error = (
-            "Reconstrução gerou um banco estruturalmente válido, MAS com menos "
-            "dados do que ainda era legível no backup original. Substituição "
-            "BLOQUEADA automaticamente para evitar perda de dados silenciosa. "
-            "Original mantido intocado; revise manualmente ou rode novamente "
-            "com force=True (CLI: --force) se aceitar a perda."
+            f"Nenhuma estratégia de reconstrução (incluindo {[c[0] for c in candidates]}) "
+            "conseguiu recuperar todos os dados que ainda eram legíveis no backup. "
+            f"Melhor resultado obtido: [{label}], com perda de dados. Substituição "
+            "BLOQUEADA automaticamente. Original mantido intocado; revise manualmente "
+            "ou rode novamente com force=True (CLI: --force) se aceitar a perda parcial."
         )
         report.log(report.error)
         for d in details:
