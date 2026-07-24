@@ -206,13 +206,8 @@ class OrdemServicoSQL:
 def imprimir_maquina_view(request):
     from datetime import datetime, date, timedelta
     from src.apps.fluxo.models import Processo, Requisicao, FluxoRequisicao
-    from django.db.models import Sum
-    import json
 
     processo_id = request.GET.get("processo_id")
-    data_inicio_str = request.GET.get("data_inicio")
-    data_fim_str = request.GET.get("data_fim")
-
     if not processo_id:
         return render(request, "maquinas/impressao.html", {"erro": "Processo não informado"})
 
@@ -221,30 +216,16 @@ def imprimir_maquina_view(request):
     except Processo.DoesNotExist:
         return render(request, "maquinas/impressao.html", {"erro": "Máquina não encontrada"})
 
-    # Hoje e início do turno (ex: 06:00) - Fallback para comportamento atual se não houver filtro
+    # Hoje e início do turno (ex: 06:00)
     hoje = date.today()
     agora = datetime.now()
     inicio_dia = datetime.combine(hoje, datetime.min.time())
     inicio_turno = inicio_dia + timedelta(hours=6) if agora.hour >= 6 else inicio_dia - timedelta(hours=18)
 
-    # Processamento de Datas do Filtro (Para os Gráficos)
-    tem_filtro = False
-    if data_inicio_str and data_fim_str:
-        try:
-            dt_ini = datetime.strptime(data_inicio_str, "%Y-%m-%d")
-            dt_fim = datetime.strptime(data_fim_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-            tem_filtro = True
-        except ValueError:
-            pass
-            
-    if not tem_filtro:
-        dt_ini = inicio_dia
-        dt_fim = datetime.combine(hoje, datetime.max.time())
-
-    # 1. Obter TODOS os fluxos para manter o relatório original INTACTO
+    # 1. Obter todos os fluxos que passaram por esta máquina
     fluxos_maquina = FluxoRequisicao.objects.filter(processo=processo).select_related('requisicao')
 
-    # Métricas Originais
+    # Métricas
     wip_lotes = []
     produzido_hoje_m2 = 0
     produzido_hoje_pcs = 0
@@ -252,23 +233,21 @@ def imprimir_maquina_view(request):
     produzido_turno_pcs = 0
     tempo_total_segundos = 0
     lotes_finalizados_count = 0
-    
-    # Dados EXCLUSIVOS para o Relatório Detalhado (Tabelas)
-    historico_lotes = []
-    resumo_artigos_dict = {}
 
     for f in fluxos_maquina:
         req = f.requisicao
         is_encerrado = f.encerrado
         
+        # Qtds (Tratar valores None)
         req_m2 = float(req.m2 or req.qt_mt or 0) if req.encerrado else float(req.qt_mt or req.m2 or 0)
         req_pcs = int(req.qt or req.quantidade or 0) if req.encerrado else int(req.quantidade or req.qt or 0)
         
         pcs_fluxo = int(f.quantidade or 0) if f.quantidade else req_pcs
         metros_fluxo = (req_m2 / req_pcs * pcs_fluxo) if req_pcs > 0 else req_m2
 
-        # 1.1 WIP (Em Processo) - MANTIDO 100% COMO ORIGINAL
+        # 1.1 WIP (Em Processo)
         if not is_encerrado:
+            # Calcular tempo esperando
             delta_espera = agora - (f.dt_processo.replace(tzinfo=None) if f.dt_processo else agora)
             horas_espera = delta_espera.total_seconds() / 3600
             
@@ -282,95 +261,22 @@ def imprimir_maquina_view(request):
             })
             continue
 
-        # 1.2 Finalizados - MANTIDO 100% COMO ORIGINAL
+        # 1.2 Finalizados
         dt_saida = f.dt_saida.replace(tzinfo=None) if f.dt_saida else (f.dt_processo.replace(tzinfo=None) if f.dt_processo else None)
-        if dt_saida and is_encerrado:
+        if dt_saida:
             lotes_finalizados_count += 1
             dt_entrada = f.dt_processo.replace(tzinfo=None) if f.dt_processo else dt_saida
+            tempo_total_segundos += max(0, (dt_saida - dt_entrada).total_seconds())
             
-            # Duração exata do lote
-            duracao_lote_segundos = max(0, (dt_saida - dt_entrada).total_seconds())
-            tempo_total_segundos += duracao_lote_segundos
-            
+            # Se terminou hoje
             if dt_saida.date() == hoje:
                 produzido_hoje_m2 += metros_fluxo
                 produzido_hoje_pcs += pcs_fluxo
                 
+            # Se terminou no turno atual
             if dt_saida >= inicio_turno:
                 produzido_turno_m2 += metros_fluxo
                 produzido_turno_pcs += pcs_fluxo
-                
-            # HISTÓRICO DETALHADO (APENAS SE ESTIVER NO PERÍODO)
-            if dt_ini <= dt_saida <= dt_fim:
-                art = req.artigo or "S/ Artigo"
-                
-                # Tabela de Histórico
-                historico_lotes.append({
-                    "cd_requisicao": req.cd_requisicao,
-                    "lote": req.lote,
-                    "artigo": art,
-                    "quantidade": pcs_fluxo,
-                    "m2": round(metros_fluxo, 2),
-                    "entrada": dt_entrada.strftime("%d/%m %H:%M"),
-                    "saida": dt_saida.strftime("%d/%m %H:%M"),
-                    "duracao_min": round(duracao_lote_segundos / 60, 1)
-                })
-                
-                # Agregação por Artigo
-                if art not in resumo_artigos_dict:
-                    resumo_artigos_dict[art] = {"lotes": 0, "pcs": 0, "m2": 0.0}
-                resumo_artigos_dict[art]["lotes"] += 1
-                resumo_artigos_dict[art]["pcs"] += pcs_fluxo
-                resumo_artigos_dict[art]["m2"] += metros_fluxo
-
-    import statistics
-
-    # Prepara Resumo por Artigos (Calcula % e Ordena por m2)
-    total_m2_historico = sum(a["m2"] for a in resumo_artigos_dict.values())
-    total_pcs_historico = sum(a["pcs"] for a in resumo_artigos_dict.values())
-    total_minutos_historico = sum(a["duracao_min"] for a in historico_lotes)
-    total_lotes_historico = len(historico_lotes)
-    
-    resumo_artigos = []
-    for art, dados in resumo_artigos_dict.items():
-        pct = (dados["m2"] / total_m2_historico * 100) if total_m2_historico > 0 else 0
-        resumo_artigos.append({
-            "artigo": art,
-            "lotes": dados["lotes"],
-            "pcs": dados["pcs"],
-            "m2": round(dados["m2"], 2),
-            "pct_m2": round(pct, 1)
-        })
-    resumo_artigos.sort(key=lambda x: x["m2"], reverse=True)
-    
-    # Cálculos Avançados (Ranking e Estatísticas)
-    maior_lote_m2 = None
-    menor_lote_m2 = None
-    top_5_maiores_tempos = []
-    estatisticas = None
-    
-    if historico_lotes:
-        # Ranking de M2
-        sorted_by_m2 = sorted(historico_lotes, key=lambda x: x["m2"])
-        menor_lote_m2 = sorted_by_m2[0]
-        maior_lote_m2 = sorted_by_m2[-1]
-        
-        # Top 5 maiores tempos
-        sorted_by_time = sorted(historico_lotes, key=lambda x: x["duracao_min"], reverse=True)
-        top_5_maiores_tempos = sorted_by_time[:5]
-        
-        # Estatísticas (Mediana, Desvio, Maior, Menor)
-        duracoes = [l["duracao_min"] for l in historico_lotes if l["duracao_min"] > 0]
-        if duracoes:
-            estatisticas = {
-                "maior": max(duracoes),
-                "menor": min(duracoes),
-                "mediana": round(statistics.median(duracoes), 1),
-                "desvio": round(statistics.stdev(duracoes), 1) if len(duracoes) > 1 else 0.0
-            }
-
-    # Ordenar o histórico cronologicamente (mais recente no topo)
-    historico_lotes.sort(key=lambda x: x["saida"], reverse=True)
 
     # 2. Cálculos Finais (KPIs)
     velocidade_media = 0
@@ -379,16 +285,14 @@ def imprimir_maquina_view(request):
 
     if lotes_finalizados_count > 0:
         tempo_medio_lote_min = (tempo_total_segundos / lotes_finalizados_count) / 60
+        # Aproximação simples para velocidade (Se temos o histórico completo)
         if horas_totais > 0:
-            velocidade_media = produzido_hoje_m2 / horas_totais 
+            velocidade_media = produzido_hoje_m2 / horas_totais # Apenas uma métrica aproximada para o relatório
 
     context = {
         "processo": processo,
         "hoje": hoje,
         "hora_impressao": agora.strftime("%H:%M:%S"),
-        "tem_filtro": tem_filtro,
-        "data_inicio": dt_ini.date() if tem_filtro else None,
-        "data_fim": dt_fim.date() if tem_filtro else None,
         "kpis": {
             "producao_hoje_m2": round(produzido_hoje_m2, 2),
             "producao_hoje_pcs": produzido_hoje_pcs,
@@ -399,16 +303,6 @@ def imprimir_maquina_view(request):
             "tempo_medio_min": round(tempo_medio_lote_min, 1),
         },
         "wip_lotes": wip_lotes,
-        "historico_lotes": historico_lotes,
-        "resumo_artigos": resumo_artigos,
-        "total_m2_historico": round(total_m2_historico, 2),
-        "total_pcs_historico": total_pcs_historico,
-        "total_lotes_historico": total_lotes_historico,
-        "total_minutos_historico": round(total_minutos_historico, 1),
-        "maior_lote_m2": maior_lote_m2,
-        "menor_lote_m2": menor_lote_m2,
-        "top_5_maiores_tempos": top_5_maiores_tempos,
-        "estatisticas": estatisticas,
     }
 
     return render(request, "maquinas/impressao.html", context)
@@ -921,275 +815,3 @@ def resumo_lotes_ativos_view(request):
         "dados": dados_relatorio,
         "today": date.today()
     })
-
-def imprimir_relatorio_geral_view(request):
-    from datetime import datetime, timedelta, time
-    from decimal import Decimal
-    
-    data_str = request.GET.get('data', '')
-    data_str = request.GET.get('data', '')
-    processos_str = request.GET.get('processos', '')
-    
-    if not data_str or not processos_str:
-        return JsonResponse({'error': 'Parâmetros data e processos são obrigatórios'}, status=400)
-        
-    try:
-        data_obj = datetime.strptime(data_str, '%Y-%m-%d').date()
-    except ValueError:
-        return JsonResponse({'error': 'Formato de data inválido. Use YYYY-MM-DD.'}, status=400)
-        
-    processos_ids = [int(x) for x in processos_str.split(',') if x.isdigit()]
-    
-    # 1º Turno: 07:30 - 17:50
-    # 2º Turno: 17:50 - 03:00 (dia seguinte)
-    t1_start = datetime.combine(data_obj, time(7, 30))
-    t1_end = datetime.combine(data_obj, time(17, 50))
-    t2_start = t1_end
-    t2_end = datetime.combine(data_obj + timedelta(days=1), time(3, 0))
-    
-    fluxos = FluxoRequisicao.objects.select_related('requisicao', 'processo').filter(
-        processo_id__in=processos_ids,
-        dt_saida__gte=t1_start,
-        dt_saida__lte=t2_end
-    )
-    
-    # Agrupar por Processo
-    processos_selecionados = Processo.objects.filter(id__in=processos_ids)
-    processos_dict = {p.id: p.nome for p in processos_selecionados}
-    
-    acabamento_list = ['MULTIPONTO', 'PISTOLA', 'TOP', 'GRAVAR PRENSA', 'TOP FINAL', 'PRENSA HIDRAULICA', 'ESPONJAR', 'PISTOLA F. CARNAL', 'ESPONJAR FLOR', 'PISTOLA CORREÇÃO', 'PISTOLA RESINA', 'PISTOLA FLOR', 'PISTOLA CARNAL', 'CHAPA LISA', 'PISTOLA CERA', 'VACUO SECO', 'VÁCUO SECO', 'MATIZAÇÃO', 'TINGIMENTO', 'IMPREGNAÇÃO', 'ROLO LISO', 'PISTOLA R. ADESÃO', 'COBERTURA PISTOLA', 'PISTOLA F. ADESÃO', 'CORTINA', 'TUNEL DE PINTURA', 'VÁCUO', 'VACUO']
-    
-    def is_acabamento(nome):
-        nome_upper = nome.upper()
-        if "VÁCUO MOLHADO" in nome_upper or "VACUO MOLHADO" in nome_upper:
-            return False
-        return any(k in nome_upper for k in acabamento_list)
-        
-    relatorio = {
-        'recurtimento': {},
-        'acabamento': {}
-    }
-    
-    for p in processos_selecionados:
-        grupo = 'acabamento' if is_acabamento(p.nome) else 'recurtimento'
-        relatorio[grupo][p.id] = {
-            'nome': p.nome,
-            'turno1': {'pecas': 0, 'mts': 0},
-            'turno2': {'pecas': 0, 'mts': 0},
-            'total': {'pecas': 0, 'mts': 0}
-        }
-        
-    for f in fluxos:
-        if f.processo_id not in processos_dict:
-            continue
-            
-        grupo = 'acabamento' if is_acabamento(processos_dict[f.processo_id]) else 'recurtimento'
-        stats = relatorio[grupo][f.processo_id]
-        
-        req = f.requisicao
-        
-        pecas = f.quantidade if f.quantidade else (req.quantidade if req.quantidade else 1)
-        
-        # Calcular mts (proporcional caso seja quantidade parcial)
-        mts = 0
-        if req.qt_mt and req.quantidade and req.quantidade > 0:
-            mts = float(req.qt_mt) * (pecas / req.quantidade)
-        elif req.qt_mt:
-            mts = float(req.qt_mt)
-            
-        if t1_start <= f.dt_saida < t1_end:
-            turno = 'turno1'
-        else:
-            turno = 'turno2'
-            
-        stats[turno]['pecas'] += pecas
-        stats[turno]['mts'] += mts
-        stats['total']['pecas'] += pecas
-        stats['total']['mts'] += mts
-
-    return render(request, "maquinas/relatorio_geral.html", {
-        "data_relatorio": data_obj.strftime("%d/%m/%Y"),
-        "dia_semana": data_obj.strftime("%A").capitalize(),
-        "relatorio": relatorio
-    })
-
-def imprimir_maquina_view(request):
-    from datetime import datetime, date
-    from django.db.models import Sum, Count, F, Avg
-    import statistics
-    
-    processo_id = request.GET.get('processo_id')
-    if not processo_id:
-        return JsonResponse({'error': 'Parâmetro processo_id obrigatório'}, status=400)
-        
-    processo = get_object_or_404(Processo, id=processo_id)
-    
-    data_inicio_str = request.GET.get('data_inicio', '')
-    data_fim_str = request.GET.get('data_fim', '')
-    tem_filtro = bool(data_inicio_str or data_fim_str)
-    
-    fluxos = FluxoRequisicao.objects.filter(processo=processo).select_related('requisicao')
-    
-    # wip lotes: fluxos não encerrados nesta maquina
-    wip_fluxos = fluxos.filter(encerrado=False).order_by('dt_processo')
-    
-    # historico: fluxos encerrados (já processados)
-    historico = fluxos.filter(encerrado=True)
-    
-    # 1º Turno (07:30 - 17:50) e 2º Turno (17:50 - 03:00)
-    hoje = date.today()
-    agora = datetime.now()
-    
-    # KPIs basicos (Produção Hoje)
-    # Consideramos os encerrados hoje
-    encerrados_hoje = historico.filter(dt_saida__date=hoje)
-    
-    if tem_filtro:
-        if data_inicio_str:
-            historico = historico.filter(dt_saida__gte=f"{data_inicio_str} 00:00:00")
-        if data_fim_str:
-            historico = historico.filter(dt_saida__lte=f"{data_fim_str} 23:59:59")
-    
-    def calc_m2(req, pcs):
-        if not req.qt_mt: return 0.0
-        if req.quantidade and req.quantidade > 0:
-            return float(req.qt_mt) * (pcs / req.quantidade)
-        return float(req.qt_mt)
-
-    # Historico Lotes
-    historico_lotes = []
-    total_minutos_historico = 0
-    total_m2_historico = 0
-    total_pcs_historico = 0
-    
-    artigos_dict = {}
-    tempos_list = []
-    
-    for f in historico:
-        req = f.requisicao
-        pcs = f.quantidade if f.quantidade else req.quantidade
-        if not pcs: pcs = 1
-        m2 = calc_m2(req, pcs)
-        
-        duracao_min = 0
-        if f.dt_processo and f.dt_saida:
-            duracao_min = (f.dt_saida - f.dt_processo).total_seconds() / 60.0
-            
-        historico_lotes.append({
-            'cd_requisicao': req.cd_requisicao,
-            'lote': req.lote,
-            'artigo': req.artigo,
-            'quantidade': pcs,
-            'm2': m2,
-            'entrada': f.dt_processo.strftime('%d/%m %H:%M') if f.dt_processo else '',
-            'saida': f.dt_saida.strftime('%d/%m %H:%M') if f.dt_saida else '',
-            'duracao_min': duracao_min
-        })
-        
-        total_pcs_historico += pcs
-        total_m2_historico += m2
-        total_minutos_historico += duracao_min
-        
-        if duracao_min > 0:
-            tempos_list.append(duracao_min)
-            
-        art = req.artigo or "N/A"
-        if art not in artigos_dict:
-            artigos_dict[art] = {'lotes': 0, 'pcs': 0, 'm2': 0}
-        artigos_dict[art]['lotes'] += 1
-        artigos_dict[art]['pcs'] += pcs
-        artigos_dict[art]['m2'] += m2
-
-    resumo_artigos = []
-    for art, val in artigos_dict.items():
-        pct = (val['m2'] / total_m2_historico * 100) if total_m2_historico > 0 else 0
-        resumo_artigos.append({
-            'artigo': art,
-            'lotes': val['lotes'],
-            'pcs': val['pcs'],
-            'm2': val['m2'],
-            'pct_m2': pct
-        })
-        
-    # KPIs globais (WIP, turno, hoje)
-    wip_lotes = []
-    wip_qtd = 0
-    wip_m2 = 0
-    for f in wip_fluxos:
-        req = f.requisicao
-        pcs = f.quantidade if f.quantidade else (req.quantidade or 1)
-        m2 = calc_m2(req, pcs)
-        wip_qtd += pcs
-        wip_m2 += m2
-        
-        espera = (agora - f.dt_processo).total_seconds() / 3600.0 if f.dt_processo else 0
-        wip_lotes.append({
-            'cd_requisicao': req.cd_requisicao,
-            'lote': req.lote,
-            'artigo': req.artigo,
-            'quantidade': pcs,
-            'm2': m2,
-            'tempo_espera': f"{espera:.1f}h"
-        })
-
-    producao_hoje_m2 = 0
-    producao_hoje_pcs = 0
-    producao_turno_m2 = 0
-    producao_turno_pcs = 0
-    
-    # Para o turno: simplificamos usando se foi na ultimas 8h ou no turno 1/2 dependendo da hora atual
-    # Para nao falhar, simplificamos: turno = hoje
-    for f in encerrados_hoje:
-        req = f.requisicao
-        pcs = f.quantidade if f.quantidade else (req.quantidade or 1)
-        m2 = calc_m2(req, pcs)
-        producao_hoje_pcs += pcs
-        producao_hoje_m2 += m2
-        # simplificação para turno
-        producao_turno_pcs += pcs
-        producao_turno_m2 += m2
-
-    kpis = {
-        'producao_hoje_m2': producao_hoje_m2,
-        'producao_hoje_pcs': producao_hoje_pcs,
-        'producao_turno_m2': producao_turno_m2,
-        'producao_turno_pcs': producao_turno_pcs,
-        'tempo_medio_min': (total_minutos_historico / len(historico_lotes)) if historico_lotes else 0,
-        'wip_qtd': wip_qtd,
-        'wip_m2': wip_m2
-    }
-    
-    # Estatisticas
-    maior_lote_m2 = max(historico_lotes, key=lambda x: x['m2']) if historico_lotes else {}
-    menor_lote_m2 = min(historico_lotes, key=lambda x: x['m2']) if historico_lotes else {}
-    
-    estat = {}
-    if tempos_list:
-        estat['maior'] = max(tempos_list)
-        estat['menor'] = min(tempos_list)
-        estat['mediana'] = statistics.median(tempos_list)
-        estat['desvio'] = statistics.stdev(tempos_list) if len(tempos_list) > 1 else 0
-        
-    top_5_maiores_tempos = sorted(historico_lotes, key=lambda x: x['duracao_min'], reverse=True)[:5]
-    
-    context = {
-        "processo": processo,
-        "tem_filtro": tem_filtro,
-        "data_inicio": data_inicio_str,
-        "data_fim": data_fim_str,
-        "hoje": hoje,
-        "hora_impressao": agora.strftime('%H:%M'),
-        "kpis": kpis,
-        "resumo_artigos": resumo_artigos,
-        "historico_lotes": historico_lotes,
-        "total_lotes_historico": len(historico_lotes),
-        "total_pcs_historico": total_pcs_historico,
-        "total_m2_historico": total_m2_historico,
-        "total_minutos_historico": total_minutos_historico,
-        "maior_lote_m2": maior_lote_m2,
-        "menor_lote_m2": menor_lote_m2,
-        "estatisticas": estat,
-        "top_5_maiores_tempos": top_5_maiores_tempos,
-        "wip_lotes": wip_lotes
-    }
-    return render(request, "maquinas/impressao.html", context)
