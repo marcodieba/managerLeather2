@@ -125,13 +125,18 @@
     <div class="header-title">Relatório de Gestão Industrial</div>
     <div class="header-subtitle">
         Máquina: <span class="font-bold" style="font-size: 12px;">{{ processo.nome }}</span> <br>
-        Data Ref.: {{ hoje|date:"d/m/Y" }} | Impresso às {{ hora_impressao }}
+        {% if tem_filtro %}
+            Período: {{ data_inicio|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}
+        {% else %}
+            Data Ref.: {{ hoje|date:"d/m/Y" }}
+        {% endif %} 
+        | Impresso às {{ hora_impressao }}
     </div>
 
     <div class="section-title">Resumo de Produção (KPIs)</div>
     <div class="grid-kpis">
         <div class="kpi-box">
-            <div class="kpi-title">Produção Hoje</div>
+            <div class="kpi-title">Produção {% if tem_filtro %}Período{% else %}Hoje{% endif %}</div>
             <div class="kpi-value text-success">{{ kpis.producao_hoje_m2|floatformat:2 }} m²</div>
             <div style="font-size: 9px; color: #94a3b8; margin-top: 2px;">{{ kpis.producao_hoje_pcs }} peças</div>
         </div>
@@ -162,6 +167,119 @@
             </div>
         </div>
     </div>
+    
+    {% if resumo_artigos %}
+    <div class="section-title">Resumo por Artigo (Período Filtrado)</div>
+    <table>
+        <tr class="table-header">
+            <td class="col-left">Artigo</td>
+            <td>Qtd Lotes</td>
+            <td>Qtd (Pcs)</td>
+            <td>Área Produzida (m²)</td>
+            <td>% do Total</td>
+        </tr>
+        {% for art in resumo_artigos %}
+        <tr>
+            <td class="col-left font-bold">{{ art.artigo }}</td>
+            <td>{{ art.lotes }}</td>
+            <td>{{ art.pcs }}</td>
+            <td>{{ art.m2|floatformat:2 }}</td>
+            <td class="text-blue">{{ art.pct_m2|floatformat:1 }}%</td>
+        </tr>
+        {% endfor %}
+        <tr style="background-color: #f1f5f9; font-weight: bold;">
+            <td class="col-left" colspan="3">Total no Período</td>
+            <td>{{ total_m2_historico|floatformat:2 }} m²</td>
+            <td>100%</td>
+        </tr>
+    </table>
+    {% endif %}
+
+    {% if historico_lotes %}
+    <div class="section-title">Histórico de Lotes Concluídos (Detalhado)</div>
+    <table style="font-size: 10px;">
+        <tr class="table-header">
+            <td class="col-left">Req.</td>
+            <td class="col-left">Lote</td>
+            <td class="col-left">Artigo</td>
+            <td>Qtd</td>
+            <td>Área (m²)</td>
+            <td>Entrada</td>
+            <td>Saída</td>
+            <td>Duração</td>
+        </tr>
+        {% for lote in historico_lotes %}
+        <tr>
+            <td class="col-left font-bold">{{ lote.cd_requisicao }}</td>
+            <td class="col-left">{{ lote.lote }}</td>
+            <td class="col-left">{{ lote.artigo }}</td>
+            <td>{{ lote.quantidade }}</td>
+            <td>{{ lote.m2|floatformat:2 }}</td>
+            <td style="color: #64748b;">{{ lote.entrada }}</td>
+            <td style="color: #64748b;">{{ lote.saida }}</td>
+            <td>{{ lote.duracao_min|floatformat:1 }} min</td>
+        </tr>
+        {% endfor %}
+        <tr style="background-color: #f1f5f9; font-weight: bold;">
+            <td class="col-left" colspan="3">Total</td>
+            <td>{{ total_lotes_historico }} lotes</td>
+            <td>{{ total_pcs_historico }} pcs</td>
+            <td>{{ total_m2_historico|floatformat:2 }} m²</td>
+            <td colspan="2" style="text-align: right;">{{ total_minutos_historico|floatformat:1 }} min totais</td>
+        </tr>
+    </table>
+    
+    <div style="display: flex; gap: 20px; margin-top: 20px; page-break-inside: avoid;">
+        <!-- Ranking de M2 -->
+        <div style="flex: 1; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px;">
+            <div class="kpi-title" style="margin-bottom: 8px;">Ranking de Área (Lotes)</div>
+            <table style="font-size: 9px; margin-bottom: 0;">
+                <tr>
+                    <td class="col-left text-success">Maior Lote</td>
+                    <td class="col-left">{{ maior_lote_m2.cd_requisicao|default:"-" }}</td>
+                    <td>{{ maior_lote_m2.m2|floatformat:2|default:"0.00" }} m²</td>
+                </tr>
+                <tr>
+                    <td class="col-left text-danger">Menor Lote</td>
+                    <td class="col-left">{{ menor_lote_m2.cd_requisicao|default:"-" }}</td>
+                    <td>{{ menor_lote_m2.m2|floatformat:2|default:"0.00" }} m²</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- Estatísticas de Tempo -->
+        <div style="flex: 1; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px;">
+            <div class="kpi-title" style="margin-bottom: 8px;">Estatísticas de Tempo (Duração)</div>
+            <table style="font-size: 9px; margin-bottom: 0;">
+                <tr>
+                    <td class="col-left">Maior Tempo</td>
+                    <td>{{ estatisticas.maior|floatformat:1|default:"-" }} min</td>
+                    <td class="col-left">Mediana</td>
+                    <td>{{ estatisticas.mediana|floatformat:1|default:"-" }} min</td>
+                </tr>
+                <tr>
+                    <td class="col-left">Menor Tempo</td>
+                    <td>{{ estatisticas.menor|floatformat:1|default:"-" }} min</td>
+                    <td class="col-left">Desvio</td>
+                    <td>{{ estatisticas.desvio|floatformat:1|default:"-" }} min</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- Top 5 Demoras -->
+        <div style="flex: 1.5; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px;">
+            <div class="kpi-title" style="margin-bottom: 8px;">Top 5 Maiores Tempos</div>
+            <table style="font-size: 9px; margin-bottom: 0;">
+                {% for t in top_5_maiores_tempos %}
+                <tr>
+                    <td class="col-left">{{ t.cd_requisicao }}</td>
+                    <td class="text-danger">{{ t.duracao_min|floatformat:1 }} min</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
 
     <div class="section-title">Em Processamento (WIP)</div>
     <div style="margin-bottom: 10px; font-weight: bold;">
@@ -192,6 +310,19 @@
         {% endfor %}
     </table>
     
+    <!-- ÁREA DE ASSINATURAS -->
+    <div style="margin-top: 50px; display: flex; justify-content: space-between; page-break-inside: avoid;">
+        <div style="flex: 1; text-align: center; padding: 0 20px;">
+            <div style="border-top: 1px solid #94a3b8; padding-top: 5px; font-size: 10px; font-weight: 600;">Operador(es)</div>
+        </div>
+        <div style="flex: 1; text-align: center; padding: 0 20px;">
+            <div style="border-top: 1px solid #94a3b8; padding-top: 5px; font-size: 10px; font-weight: 600;">Supervisor</div>
+        </div>
+        <div style="flex: 1; text-align: center; padding: 0 20px;">
+            <div style="border-top: 1px solid #94a3b8; padding-top: 5px; font-size: 10px; font-weight: 600;">PCP</div>
+        </div>
+    </div>
+    
     <div style="margin-top: 30px; border-top: 1px dashed #cbd5e1; padding-top: 10px; text-align: center; font-size: 9px; color: #94a3b8;">
         LeatherManager ERP - Gestão de Produção<br>
         Documento gerado automaticamente pelo sistema.
@@ -200,7 +331,6 @@
 {% endif %}
 
 <script>
-    // Imprime automaticamente assim que a página carrega
     window.onload = function() {
         setTimeout(function() {
             window.print();

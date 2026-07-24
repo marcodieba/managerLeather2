@@ -8,8 +8,9 @@ from rest_framework.authtoken.models import Token
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import authenticate, logout
 from django.utils.timezone import is_aware, make_naive
-from django.db.models import Q
-from datetime import datetime, date
+from django.db.models import Q, Sum, Count
+from django.db.models.functions import ExtractHour, ExtractWeekDay
+from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from .models import Requisicao, Operador
@@ -79,29 +80,23 @@ def api_leitor_requisicao_info(request, cd_requisicao):
         req = Requisicao.objects.get(cd_requisicao=cd_requisicao)
         processo_id = request.query_params.get("processo_id")
         
-        # 1. Encontrar o último processo diferente do atual
-        ultimo_fluxo_diferente = None
-        if processo_id:
-            ultimo_fluxo_diferente = req.fluxos.exclude(processo_id=processo_id).order_by('-id').first()
-        else:
-            ultimo_fluxo_diferente = req.fluxos.order_by('-id').first()
-            
-        if ultimo_fluxo_diferente:
-            processo_anterior_id = ultimo_fluxo_diferente.processo_id
-            # A quantidade base para o próximo setor é TUDO o que já entrou no setor anterior
-            qtd_anterior = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_anterior_id))
-        else:
-            # Se não houver processo anterior (é a primeira máquina), a base é a requisição
-            qtd_anterior = float(req.quantidade or req.qt or 0)
-            
-        # 2. Obter a quantidade JÁ PROCESSADA no processo ATUAL
-        qtd_atual = 0
-        if processo_id:
-            qtd_atual = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_id))
-            
-        # 3. Sugerir a diferença (apenas o que falta passar da máquina anterior para a atual)
-        qtd_sugerida = qtd_anterior - qtd_atual
+        total_requisicao = float(req.quantidade or req.qt or 0)
         
+        if not processo_id or processo_id == "undefined" or processo_id == "null" or processo_id == "":
+            return Response({"cd_requisicao": req.cd_requisicao, "quantidade": total_requisicao})
+            
+        qtd_ja_entrou_aqui = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_id))
+        tem_outro_processo = req.fluxos.exclude(processo_id=processo_id).exists()
+        
+        if not tem_outro_processo:
+            qtd_sugerida = total_requisicao - qtd_ja_entrou_aqui
+        else:
+            saldo_disponivel_anterior = sum(
+                (f.quantidade or 0) 
+                for f in req.fluxos.filter(encerrado=False).exclude(processo_id=processo_id)
+            )
+            qtd_sugerida = saldo_disponivel_anterior
+            
         if qtd_sugerida < 0:
             qtd_sugerida = 0
             
@@ -122,7 +117,7 @@ def api_resumo_lotes_ativos(request):
     requisicoes_ativas = Requisicao.objects.filter(
         encerrado=False,
         fluxos__processo__nome__icontains='Recurtimento'
-    ).distinct().prefetch_related('fluxos__processo')
+    ).distinct().prefetch_related('fluxos__processo', 'pedido_links__pedido')
 
     dados_relatorio = []
 
@@ -139,11 +134,24 @@ def api_resumo_lotes_ativos(request):
         
         for f in fluxos_ativos:
             if f.processo:
+                valor_retido = float(f.quantidade or 0) * float(req.custo_requisicao or 0)
                 locais_atuais.append({
                     'nome': f.processo.nome,
                     'quantidade': f.quantidade,
+                    'valor_retido': valor_retido,
                     'tempo_no_setor': formatar_tempo(calcular_segundos(f.dt_processo, datetime.now()))
                 })
+
+        # Alerta OTD (On-Time Delivery)
+        risco_atraso = False
+        data_embarque = None
+        link_pedido = req.pedido_links.first()
+        if link_pedido and link_pedido.pedido and link_pedido.pedido.dt_programada:
+            data_embarque = link_pedido.pedido.dt_programada
+            if isinstance(data_embarque, datetime):
+                data_embarque = data_embarque.date()
+            if data_embarque <= date.today() + timedelta(days=2):
+                risco_atraso = True
 
         if locais_atuais:
             dados_relatorio.append({
@@ -153,6 +161,8 @@ def api_resumo_lotes_ativos(request):
                 'artigo': req.artigo or "N/A",
                 'data_inicio': data_inicio_total.isoformat() if data_inicio_total else None,
                 'tempo_total': formatar_tempo(tempo_total_segundos),
+                'risco_atraso': risco_atraso,
+                'data_embarque': data_embarque.isoformat() if data_embarque else None,
                 'locais_atuais': locais_atuais
             })
 
@@ -405,3 +415,51 @@ def api_sync_selectrequisicao(request):
             'sucesso': False,
             'mensagem': f'Erro na sincronização: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_pareto_refugos(request):
+    from .models import FluxoRequisicao
+    # Filtra fluxos enviados para o setor de perda/refugo
+    perdas = FluxoRequisicao.objects.filter(
+        processo__nome__icontains='PERDA'
+    ).values('requisicao__artigo').annotate(
+        total_perdido=Sum('quantidade')
+    ).order_by('-total_perdido')
+    
+    total_geral = sum(p['total_perdido'] or 0 for p in perdas)
+    
+    dados = []
+    acumulado = 0
+    for p in perdas:
+        qtd = p['total_perdido'] or 0
+        if qtd > 0:
+            acumulado += qtd
+            percentagem_acumulada = (acumulado / total_geral) * 100 if total_geral > 0 else 0
+            dados.append({
+                'artigo': p['requisicao__artigo'] or 'Sem Artigo',
+                'quantidade': qtd,
+                'percentagem_acumulada': round(percentagem_acumulada, 2)
+            })
+            
+    return Response(dados)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_heatmap_produtividade(request):
+    from .models import FluxoRequisicao
+    
+    trinta_dias = date.today() - timedelta(days=30)
+    
+    # 1=Domingo, 2=Segunda, etc.
+    agrupado = FluxoRequisicao.objects.filter(
+        dt_processo__gte=trinta_dias,
+        quantidade__isnull=False
+    ).annotate(
+        hora=ExtractHour('dt_processo'),
+        dia_semana=ExtractWeekDay('dt_processo')
+    ).values('hora', 'dia_semana').annotate(
+        total=Sum('quantidade')
+    ).order_by('dia_semana', 'hora')
+    
+    return Response(list(agrupado))
