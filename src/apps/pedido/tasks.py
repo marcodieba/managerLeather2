@@ -7,7 +7,7 @@ from .selectformula import SelectFormula
 def sync_pedidos_task():
     """Roda a sincronização de pedidos em background"""
     sincronizador = SelectPedidos()
-    sincronizador.pedidos_marca()
+    sincronizador.dbsqlite()
 
 @shared_task
 def sync_formulas_task():

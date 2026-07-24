@@ -63,14 +63,27 @@ class FluxoRequisicaoSerializer(serializers.ModelSerializer):
 class RequisicaoSerializer(serializers.ModelSerializer):
     fluxos = FluxoRequisicaoSerializer(many=True, read_only=True)
     justificativas_registadas = RequisicaoJustificativaSerializer(many=True, read_only=True)
+    risco_atraso = serializers.SerializerMethodField()
 
     class Meta:
         model = Requisicao
         fields = [
             'id', 'data', 'cd_requisicao', 'artigo', 'nr_pedido', 'quantidade', 'lote', 
             'dt_requisicao', 'modificado', 'encerrado', 'fluxos', 'setor', 'qt_mt', 'm2', 'qt',
-            'am', 'exp_qt', 'exp_m2', 'exp_am', 'rend', 'kg_blue', 'seco', 'justificativas_registadas'
+            'am', 'exp_qt', 'exp_m2', 'exp_am', 'rend', 'kg_blue', 'seco', 'justificativas_registadas',
+            'custo_requisicao', 'risco_atraso'
         ]
+
+    def get_risco_atraso(self, obj):
+        from datetime import date, timedelta, datetime
+        link = obj.pedido_links.first()
+        if link and link.pedido and link.pedido.dt_programada:
+            dt_prog = link.pedido.dt_programada
+            if isinstance(dt_prog, datetime):
+                dt_prog = dt_prog.date()
+            if dt_prog <= date.today() + timedelta(days=2):
+                return True
+        return False
 
     def update(self, instance, validated_data):
         fluxos_data = validated_data.pop('fluxos', [])

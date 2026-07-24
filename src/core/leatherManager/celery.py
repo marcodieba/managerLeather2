@@ -2,7 +2,7 @@ import os
 from celery import Celery
 
 # Define o módulo de definições padrão do Django para o Celery
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'leatherManager.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'src.core.leatherManager.settings')
 
 app = Celery('leatherManager')
 

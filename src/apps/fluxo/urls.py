@@ -24,6 +24,7 @@ urlpatterns = [
     # ---------------------------------------------------------
     path("imprimir/", views.imprimir_rendimento_view, name="imprimir_rendimento"),
     path("imprimir/maquina/", views.imprimir_maquina_view, name="imprimir_maquina"),
+    path("imprimir/relatorio-geral/", views.imprimir_relatorio_geral_view, name="imprimir_relatorio_geral"),
     path('ordem-servico/', views.ordem_servico_page, name='ordem_servico_page'),
     path('busca/requisicao/', views.busca_requisicao_ajax, name='busca_requisicao_ajax'),
     path('resumo-lotes/', views.resumo_lotes_ativos_view, name='resumo_lotes'),
@@ -40,6 +41,9 @@ urlpatterns = [
     path('v1/relatorio-rendimento/', api_views.api_imprimir_rendimento, name='api_v1_imprimir_rendimento'),
     path('v1/calcular-ordem-servico/', api_views.api_calcular_ordem_servico, name='api_v1_calcular_ordem_servico'),
     path('v1/leitor/requisicao-info/<str:cd_requisicao>/', api_views.api_leitor_requisicao_info, name='api_v1_leitor_requisicao_info'),
+    
+    path('v1/dashboard/pareto-refugos/', api_views.api_pareto_refugos, name='api_v1_pareto_refugos'),
+    path('v1/dashboard/heatmap-produtividade/', api_views.api_heatmap_produtividade, name='api_v1_heatmap_produtividade'),
     
     # ADICIONE ESTA LINHA EM FALTA ABAIXO: 👇
     path('v1/auth/login/', api_views.api_login, name='api_v1_auth_login'),
