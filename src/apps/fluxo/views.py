@@ -10,7 +10,7 @@ from .models import Processo, Requisicao, FluxoRequisicao, Operador, RoteiroArti
 from .serializers import PedidoSerializer, ProcessoSerializer, RequisicaoSerializer, FluxoRequisicaoSerializer, OperadorSerializer, JustificativaSerializer
 from src.apps.pedido.models import Pedido
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.contrib.admin.views.decorators import staff_member_required
 
 from .select_custo_formula import custo_requisicao
@@ -1025,30 +1025,48 @@ def imprimir_maquina_view(request):
     processo = get_object_or_404(Processo, id=processo_id)
     
     data_inicio_str = request.GET.get('data_inicio', '')
-    data_fim_str = request.GET.get('data_fim', '')
-    tem_filtro = bool(data_inicio_str or data_fim_str)
-    
+    data_fim_str    = request.GET.get('data_fim', '')
+    filtro_artigo   = request.GET.get('artigo', '').strip()
+    filtro_pedido   = request.GET.get('pedido', '').strip()
+    filtro_lote     = request.GET.get('lote', '').strip()
+
+    tem_filtro = bool(data_inicio_str or data_fim_str or filtro_artigo or filtro_pedido or filtro_lote)
+
     fluxos = FluxoRequisicao.objects.filter(processo=processo).select_related('requisicao')
-    
+
     # wip lotes: fluxos não encerrados nesta maquina
     wip_fluxos = fluxos.filter(encerrado=False).order_by('dt_processo')
-    
+
     # historico: fluxos encerrados (já processados)
     historico = fluxos.filter(encerrado=True)
-    
+
     # 1º Turno (07:30 - 17:50) e 2º Turno (17:50 - 03:00)
     hoje = date.today()
     agora = datetime.now()
-    
-    # KPIs basicos (Produção Hoje)
-    # Consideramos os encerrados hoje
-    encerrados_hoje = historico.filter(dt_saida__date=hoje)
-    
-    if tem_filtro:
-        if data_inicio_str:
-            historico = historico.filter(dt_saida__gte=f"{data_inicio_str} 00:00:00")
-        if data_fim_str:
-            historico = historico.filter(dt_saida__lte=f"{data_fim_str} 23:59:59")
+
+    # KPIs basicos (Produção Hoje) — sempre relativo ao dia corrente, sem filtros de data
+    encerrados_hoje = fluxos.filter(encerrado=True, dt_saida__date=hoje)
+
+    # Filtros de período (aplicados à data da requisição, como no dashboard frontend)
+    if data_inicio_str:
+        historico   = historico.filter(requisicao__dt_requisicao__gte=f"{data_inicio_str} 00:00:00")
+        wip_fluxos  = wip_fluxos.filter(requisicao__dt_requisicao__gte=f"{data_inicio_str} 00:00:00")
+    if data_fim_str:
+        historico   = historico.filter(requisicao__dt_requisicao__lte=f"{data_fim_str} 23:59:59")
+        wip_fluxos  = wip_fluxos.filter(requisicao__dt_requisicao__lte=f"{data_fim_str} 23:59:59")
+
+    # Filtros adicionais via requisição relacionada
+    if filtro_artigo:
+        # Busca tanto no nome do artigo genérico quanto no artigo customizado
+        q_art = Q(requisicao__artigo__icontains=filtro_artigo) | Q(requisicao__artigo_padrao__nome__icontains=filtro_artigo)
+        historico   = historico.filter(q_art)
+        wip_fluxos  = wip_fluxos.filter(q_art)
+    if filtro_pedido:
+        historico   = historico.filter(requisicao__nr_pedido__icontains=filtro_pedido)
+        wip_fluxos  = wip_fluxos.filter(requisicao__nr_pedido__icontains=filtro_pedido)
+    if filtro_lote:
+        historico   = historico.filter(requisicao__lote__icontains=filtro_lote)
+        wip_fluxos  = wip_fluxos.filter(requisicao__lote__icontains=filtro_lote)
     
     def calc_m2(req, pcs):
         if not req.qt_mt: return 0.0
@@ -1177,6 +1195,9 @@ def imprimir_maquina_view(request):
         "tem_filtro": tem_filtro,
         "data_inicio": data_inicio_str,
         "data_fim": data_fim_str,
+        "filtro_artigo": filtro_artigo,
+        "filtro_pedido": filtro_pedido,
+        "filtro_lote": filtro_lote,
         "hoje": hoje,
         "hora_impressao": agora.strftime('%H:%M'),
         "kpis": kpis,

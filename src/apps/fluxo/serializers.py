@@ -64,6 +64,7 @@ class RequisicaoSerializer(serializers.ModelSerializer):
     fluxos = FluxoRequisicaoSerializer(many=True, read_only=True)
     justificativas_registadas = RequisicaoJustificativaSerializer(many=True, read_only=True)
     risco_atraso = serializers.SerializerMethodField()
+    artigo_generico = serializers.CharField(source='artigo_padrao.nome', read_only=True)
 
     class Meta:
         model = Requisicao
@@ -71,7 +72,7 @@ class RequisicaoSerializer(serializers.ModelSerializer):
             'id', 'data', 'cd_requisicao', 'artigo', 'nr_pedido', 'quantidade', 'lote', 
             'dt_requisicao', 'modificado', 'encerrado', 'fluxos', 'setor', 'qt_mt', 'm2', 'qt',
             'am', 'exp_qt', 'exp_m2', 'exp_am', 'rend', 'kg_blue', 'seco', 'justificativas_registadas',
-            'custo_requisicao', 'risco_atraso'
+            'custo_requisicao', 'risco_atraso', 'artigo_generico'
         ]
 
     def get_risco_atraso(self, obj):

@@ -126,11 +126,15 @@
     <div class="header-subtitle">
         Máquina: <span class="font-bold" style="font-size: 12px;">{{ processo.nome }}</span> <br>
         {% if tem_filtro %}
-            Período: {{ data_inicio|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}
+            Filtros Ativos: 
+            {% if data_inicio or data_fim %} Período: {{ data_inicio|default:"..."|date:"d/m/Y" }} a {{ data_fim|default:"..."|date:"d/m/Y" }} {% endif %}
+            {% if filtro_artigo %} | Artigo: {{ filtro_artigo }} {% endif %}
+            {% if filtro_pedido %} | Pedido: {{ filtro_pedido }} {% endif %}
+            {% if filtro_lote %} | Lote: {{ filtro_lote }} {% endif %}
         {% else %}
-            Data Ref.: {{ hoje|date:"d/m/Y" }}
+            Data Ref.: {{ hoje|date:"d/m/Y" }} (Sem filtros)
         {% endif %} 
-        | Impresso às {{ hora_impressao }}
+        <br>Impresso às {{ hora_impressao }}
     </div>
 
     <div class="section-title">Resumo de Produção (KPIs)</div>
