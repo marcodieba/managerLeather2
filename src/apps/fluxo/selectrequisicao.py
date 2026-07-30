@@ -407,7 +407,14 @@ class SelectRequisicao(object):
                             """, (requisicao_id, pedido_id, requisicao_id, pedido_id))
 
                     if refila:
-                        processo_id = 10
+                        cursorsqlite.execute("SELECT id FROM fluxo_processo WHERE nome LIKE %s LIMIT 1", ['%Refil%'])
+                        proc_row = cursorsqlite.fetchone()
+                        if not proc_row:
+                            cursorsqlite.execute("INSERT INTO fluxo_processo (nome) VALUES ('Refiladeira')")
+                            processo_id = cursorsqlite.lastrowid
+                        else:
+                            processo_id = proc_row[0]
+                            
                         # CORREÇÃO: ? passa a %s
                         cursorsqlite.execute("""
                             INSERT INTO fluxo_refilo (requisicao_id, processo_id, qt_refila)
