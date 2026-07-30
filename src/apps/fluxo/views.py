@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.timezone import is_aware, make_naive
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Avg, F
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -753,6 +753,37 @@ def ler_qrcode_movimentacao(request):
     })
 
 
+def calcular_qt_mt_media(artigo_nome, nova_quantidade):
+    """
+    Calcula qt_mt com base na média histórica de m²/peça
+    de requisições do mesmo artigo.
+    Requer mínimo de 3 requisições com dados válidos.
+    Retorna None se o histórico for insuficiente.
+    """
+    if not artigo_nome:
+        return None
+
+    historico = Requisicao.objects.filter(
+        artigo__icontains=artigo_nome,
+        qt_mt__isnull=False,
+        quantidade__isnull=False,
+        quantidade__gt=0,
+        qt_mt__gt=0
+    )
+
+    if historico.count() < 3:
+        return None
+
+    media_m2_por_peca = historico.aggregate(
+        media=Avg(F('qt_mt') / F('quantidade'))
+    )['media']
+
+    if not media_m2_por_peca:
+        return None
+
+    return round(float(media_m2_por_peca) * nova_quantidade, 2)
+
+
 @csrf_exempt
 @api_view(['POST'])
 @authentication_classes([])
@@ -765,7 +796,8 @@ def ajustar_processo_anterior(request):
     cd_requisicao = request.data.get('cd_requisicao')
     processo_id = request.data.get('processo_id')
     nova_qtd_anterior = int(request.data.get('nova_qtd_anterior', 0))
-    
+    justificativa_ajuste = request.data.get('justificativa_ajuste', '').strip()
+
     # Credenciais do supervisor
     username = request.data.get('username')
     password = request.data.get('password')
@@ -792,13 +824,23 @@ def ajustar_processo_anterior(request):
     is_primeiro_processo = not requisicao.fluxos.exists()
     if is_primeiro_processo:
         # Se é o primeiro processo, o ajuste na verdade é no total do lote (Requisicao)
+        qtd_antiga = requisicao.quantidade
         requisicao.quantidade = nova_qtd_anterior
-        
+
+        # Recalcula qt_mt com base na média histórica do mesmo artigo
+        qt_mt_calculado = calcular_qt_mt_media(requisicao.artigo, nova_qtd_anterior)
+        if qt_mt_calculado is not None:
+            requisicao.qt_mt = qt_mt_calculado
+
         agora = timezone.now()
-        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote total ajustado de {requisicao.quantidade} para {nova_qtd_anterior} pelo supervisor {user.username}."
+        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote total ajustado de {qtd_antiga} para {nova_qtd_anterior} peças pelo supervisor {user.username}."
+        if qt_mt_calculado is not None:
+            nova_obs += f" M² recalculado para {qt_mt_calculado} (média histórica do artigo)."
+        if justificativa_ajuste:
+            nova_obs += f" Justificativa: {justificativa_ajuste}"
         requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
         requisicao.save()
-        
+
         return Response({'sucesso': True, 'mensagem': 'Ajuste concluído com sucesso.'})
     
     # Se não é o primeiro processo, ajusta a quantidade dos fluxos abertos no processo anterior
@@ -838,12 +880,26 @@ def ajustar_processo_anterior(request):
             
         proc_ant = Processo.objects.filter(id=processo_anterior_id).first()
         nome_proc = proc_ant.nome if proc_ant else "Desconhecido"
-        
+
+        # Atualiza a quantidade total da requisição
+        qtd_antiga = requisicao.quantidade or 0
+        nova_qtd_requisicao = qtd_antiga + diferenca
+        requisicao.quantidade = nova_qtd_requisicao
+
+        # Recalcula qt_mt com base na média histórica do mesmo artigo
+        qt_mt_calculado = calcular_qt_mt_media(requisicao.artigo, nova_qtd_requisicao)
+        if qt_mt_calculado is not None:
+            requisicao.qt_mt = qt_mt_calculado
+
         sinal = "+" if diferenca > 0 else ""
-        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste manual ({sinal}{diferenca} peças) no processo {nome_proc} pelo supervisor {user.username}."
+        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste manual ({sinal}{diferenca} peças) no processo {nome_proc} pelo supervisor {user.username}. Quantidade da requisição atualizada de {qtd_antiga} para {nova_qtd_requisicao}."
+        if qt_mt_calculado is not None:
+            nova_obs += f" M² recalculado para {qt_mt_calculado} (média histórica do artigo)."
+        if justificativa_ajuste:
+            nova_obs += f" Justificativa: {justificativa_ajuste}"
         requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
         requisicao.save()
-        
+
     return Response({'sucesso': True, 'mensagem': 'Ajuste concluído com sucesso.'})
 
 @staff_member_required
