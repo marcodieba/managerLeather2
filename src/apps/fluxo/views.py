@@ -819,12 +819,16 @@ def ler_qrcode_movimentacao(request):
             
         if qtd_a_consumir >= fluxo.quantidade:
             qtd_a_consumir -= fluxo.quantidade
+            fluxo.processo = processo_atual  # ← corrige: grava a máquina real usada
+            fluxo.operador = operador.usuario  # ← grava quem realmente processou
             fluxo.encerrado = True
             fluxo.dt_saida = agora
             fluxo.save()
         else:
             qtd_que_ficou = fluxo.quantidade - qtd_a_consumir
             fluxo.quantidade = qtd_a_consumir
+            fluxo.processo = processo_atual  # ← corrige: grava a máquina real usada
+            fluxo.operador = operador.usuario  # ← grava quem realmente processou
             fluxo.encerrado = True
             fluxo.dt_saida = agora
             fluxo.save()
@@ -909,8 +913,8 @@ def ler_qrcode_movimentacao(request):
             processo=proximo_processo,
             quantidade=qtd_recebida,
             dt_processo=agora,
-            encerrado=False,
-            operador=operador.usuario
+            encerrado=False
+            # Sem operador: este fluxo está aguardando ser iniciado por alguém
         )
 
     

@@ -373,7 +373,7 @@ class SelectRequisicao(object):
                             nome_cadastrado = str(a_nome).strip().upper()
                             palavras_cadastrado = set(nome_cadastrado.split())
                             
-                            if nome_cadastrado in texto_artigo_req or palavras_cadastrado.issubset(palavras_req):
+                            if texto_artigo_req in nome_cadastrado or palavras_req.issubset(palavras_cadastrado):
                                 artigo_encontrado_id = a_id
                                 break
                         

@@ -56,7 +56,12 @@ class OperadorSerializer(serializers.ModelSerializer):
 class FluxoRequisicaoSerializer(serializers.ModelSerializer):
     processo = serializers.PrimaryKeyRelatedField(queryset=Processo.objects.all())  # Espera apenas o ID
     processo_nome = serializers.CharField(source='processo.nome', read_only=True)
-    operador_nome = serializers.CharField(source='operador.username', read_only=True, allow_null=True)
+    operador_nome = serializers.SerializerMethodField()
+
+    def get_operador_nome(self, obj):
+        if obj.operador:
+            return obj.operador.get_full_name() or obj.operador.username
+        return None
 
     class Meta:
         model = FluxoRequisicao
