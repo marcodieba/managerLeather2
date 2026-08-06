@@ -744,7 +744,7 @@ def ler_qrcode_movimentacao(request):
     forcar_ajuste = request.data.get('forcar_ajuste', False)
 
     # --------------------------------------------------------------------------------
-    # 1. VALIDAÇÃO DE ROTEIRO (NOVA LÓGICA DE FILA DE ESPERA PUSH)
+    # 1 E 2. VALIDAÇÃO SIMULTÂNEA DE ROTEIRO E QUANTIDADE
     # --------------------------------------------------------------------------------
     fluxos_abertos = list(requisicao.fluxos.filter(encerrado=False).order_by('dt_processo', 'id'))
     
@@ -752,11 +752,16 @@ def ler_qrcode_movimentacao(request):
     username = request.data.get('supervisor_username')
     password = request.data.get('supervisor_password')
     justificativa_roteiro = request.data.get('justificativa_roteiro', '').strip()
-
+    
+    precisa_autorizacao_roteiro = False
+    precisa_confirmacao_qtd = False
+    erros_pendentes = {}
+    
+    # 1. VALIDAÇÃO ROTEIRO
     if fluxos_abertos:
         processo_esperado = fluxos_abertos[0].processo
         
-        # Ignora a checagem se estiver na fila genérica, Recurtimento (inicial) ou Descarregamento
+        # Ignora a checagem se estiver na fila genérica
         is_fila_generica = False
         if processo_esperado and processo_esperado.nome:
             nome_proc = processo_esperado.nome.upper()
@@ -765,12 +770,9 @@ def ler_qrcode_movimentacao(request):
         
         if processo_esperado and processo_esperado.id != processo_atual.id and not is_fila_generica:
             if not forcar_roteiro:
-                return Response({
-                    'sucesso': False,
-                    'precisa_autorizacao_roteiro': True,
-                    'esperado': processo_esperado.nome,
-                    'erro': f'O processo correto aguardado é {processo_esperado.nome}. Deseja forçar a entrada em {processo_atual.nome}?'
-                }, status=400)
+                precisa_autorizacao_roteiro = True
+                erros_pendentes['esperado'] = processo_esperado.nome
+                erros_pendentes['erro_roteiro'] = f'O processo correto aguardado é {processo_esperado.nome}. Deseja forçar a entrada em {processo_atual.nome}?'
             else:
                 from django.contrib.auth import authenticate
                 user = authenticate(username=username, password=password)
@@ -782,9 +784,7 @@ def ler_qrcode_movimentacao(request):
                 requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
                 requisicao.save()
 
-    # --------------------------------------------------------------------------------
-    # 2. VALIDAÇÃO DE QUANTIDADE (MANTIDA)
-    # --------------------------------------------------------------------------------
+    # 2. VALIDAÇÃO QUANTIDADE
     total_disponivel = sum((f.quantidade or 0) for f in fluxos_abertos)
     if not fluxos_abertos:
         # É o primeiro processo! A quantidade base é a da requisição
@@ -794,13 +794,19 @@ def ler_qrcode_movimentacao(request):
         
     if qtd_recebida > total_disponivel + 12 and not forcar_ajuste:
         diferenca = qtd_recebida - total_disponivel
+        precisa_confirmacao_qtd = True
+        erros_pendentes['diferenca'] = diferenca
+        erros_pendentes['qtd_anterior'] = total_disponivel
+        erros_pendentes['total_requisicao'] = float(requisicao.quantidade or requisicao.qt or 0)
+        erros_pendentes['erro_qtd'] = f'A quantidade recebida excede o saldo da requisição em {int(diferenca)} peças.'
+
+    # SE HOUVER QUALQUER PENDÊNCIA, RETORNA TODAS JUNTAS
+    if precisa_autorizacao_roteiro or precisa_confirmacao_qtd:
         return Response({
-            'sucesso': False, 
-            'precisa_confirmacao': True, 
-            'diferenca': diferenca,
-            'qtd_anterior': total_disponivel,
-            'total_requisicao': float(requisicao.quantidade or requisicao.qt or 0),
-            'erro': f'A quantidade recebida excede o saldo da requisição em {int(diferenca)} peças.'
+            'sucesso': False,
+            'precisa_autorizacao_roteiro': precisa_autorizacao_roteiro,
+            'precisa_confirmacao_qtd': precisa_confirmacao_qtd,
+            **erros_pendentes
         }, status=400)
 
     # --------------------------------------------------------------------------------
@@ -881,6 +887,13 @@ def ler_qrcode_movimentacao(request):
                 proximo_processo = proximo_roteiro.processo
             else:
                 proximo_processo = "FIM"
+                
+    # --- NOVA REGRA: Interceptar Classificação e Medição ---
+    nome_proc_atual = processo_atual.nome.upper()
+    if "CLASSIFICA" in nome_proc_atual:
+        proximo_processo, _ = Processo.objects.get_or_create(nome="⏳ Encerrado Aguardando Medir")
+    elif "MEDI" in nome_proc_atual or "PCP" in nome_proc_atual:
+        proximo_processo = "FIM"
     
     if proximo_processo == "FIM":
         requisicao.encerrado = True
@@ -1248,7 +1261,15 @@ def imprimir_maquina_view(request):
     if not processo_id:
         return JsonResponse({'error': 'Parâmetro processo_id obrigatório'}, status=400)
         
-    processo = get_object_or_404(Processo, id=processo_id)
+    class DummyProcesso:
+        nome = 'Todas as Máquinas (Geral)'
+        
+    if processo_id == 'todos':
+        processo = DummyProcesso()
+        fluxos = FluxoRequisicao.objects.all().select_related('requisicao', 'processo')
+    else:
+        processo = get_object_or_404(Processo, id=processo_id)
+        fluxos = FluxoRequisicao.objects.filter(processo=processo).select_related('requisicao', 'processo')
     
     data_inicio_str = request.GET.get('data_inicio', '')
     data_fim_str    = request.GET.get('data_fim', '')
@@ -1258,7 +1279,7 @@ def imprimir_maquina_view(request):
 
     tem_filtro = bool(data_inicio_str or data_fim_str or filtro_artigo or filtro_pedido or filtro_lote)
 
-    fluxos = FluxoRequisicao.objects.filter(processo=processo).select_related('requisicao')
+    # fluxos already defined above
 
     # wip lotes: fluxos não encerrados nesta maquina
     wip_fluxos = fluxos.filter(encerrado=False).order_by('dt_processo')
@@ -1321,7 +1342,7 @@ def imprimir_maquina_view(request):
             
         historico_lotes.append({
             'cd_requisicao': req.cd_requisicao,
-            'lote': req.lote,
+            'lote': f"{req.lote} ({f.processo.nome if f.processo else 'N/A'})",
             'artigo': req.artigo,
             'quantidade': pcs,
             'm2': m2,
@@ -1369,7 +1390,7 @@ def imprimir_maquina_view(request):
         espera = (agora - f.dt_processo).total_seconds() / 3600.0 if f.dt_processo else 0
         wip_lotes.append({
             'cd_requisicao': req.cd_requisicao,
-            'lote': req.lote,
+            'lote': f"{req.lote} ({f.processo.nome if f.processo else 'N/A'})",
             'artigo': req.artigo,
             'quantidade': pcs,
             'm2': m2,
