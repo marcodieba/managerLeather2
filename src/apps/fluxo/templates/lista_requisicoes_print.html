@@ -1,0 +1,131 @@
+{% load filter %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Lista de Requisições</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            margin: 0;
+            padding: 20px;
+            color: #334155;
+            background-color: #fff;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 700;
+            text-align: center;
+            color: #0f172a;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .header-subtitle {
+            font-size: 10px;
+            color: #64748b;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th, td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 8px 10px;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .table-header {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: #475569;
+            text-transform: uppercase;
+            font-size: 10px;
+        }
+
+        .col-left { text-align: left; }
+        .col-right { text-align: right; }
+        .font-bold { font-weight: 600; color: #1e293b; }
+        
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+        }
+        .badge-gray { background-color: #f1f5f9; color: #475569; }
+
+        .nao-imprimir {
+            padding: 10px 20px;
+            background: #d97706;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        @media print {
+            .nao-imprimir { display: none !important; }
+            body { margin: 0; padding: 0; }
+            @page { margin: 1cm; size: portrait; }
+        }
+    </style>
+</head>
+<body>
+
+    <button onclick="window.print()" class="nao-imprimir">🖨️ Imprimir Relatório</button>
+
+    <div class="header-title">Relatório de Requisições</div>
+    <div class="header-subtitle">Lista de Requisições Filtradas</div>
+
+    <table>
+        <tr class="table-header">
+            <td class="col-left">Req / Código</td>
+            <td class="col-left">Lote</td>
+            <td class="col-left">Artigo</td>
+            <td>Qtd (Pçs)</td>
+            <td>M²</td>
+            <td>Status</td>
+        </tr>
+        {% for req in requisicoes %}
+        <tr>
+            <td class="col-left font-bold" style="font-size: 9px;">{{ req.cd_requisicao }}</td>
+            <td class="col-left">{{ req.lote }}</td>
+            <td class="col-left">{{ req.artigo }}</td>
+            <td>{{ req.quantidade }}</td>
+            <td>{{ req.m2|floatformat:2 }}</td>
+            <td>
+                <span class="badge badge-gray">
+                    {% if req.encerrado %}Encerrado{% else %}Em Processo{% endif %}
+                </span>
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="6" style="padding: 20px; color: #64748b;">Nenhuma requisição encontrada.</td>
+        </tr>
+        {% endfor %}
+        {% if requisicoes %}
+        <tr class="table-header" style="background-color: transparent; border-top: 2px solid #334155;">
+            <td colspan="3" class="col-right font-bold" style="padding-right: 15px;">TOTAL FILTRADO:</td>
+            <td class="font-bold">{{ total_pecas }}</td>
+            <td class="font-bold">{{ total_m2|floatformat:2 }}</td>
+            <td></td>
+        </tr>
+        {% endif %}
+    </table>
+
+</body>
+</html>

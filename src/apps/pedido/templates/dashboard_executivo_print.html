@@ -1,0 +1,221 @@
+{% load filter %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Executivo</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            margin: 0;
+            padding: 20px;
+            color: #334155;
+            background-color: #fff;
+        }
+
+        .header-title {
+            font-size: 20px;
+            font-weight: 700;
+            text-align: center;
+            color: #0f172a;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .header-subtitle {
+            font-size: 11px;
+            color: #64748b;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            background: #f8fafc;
+        }
+        
+        .card-header {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            border-bottom: 2px solid #cbd5e1;
+            padding-bottom: 5px;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        
+        .metric-label {
+            color: #475569;
+        }
+
+        .metric-value {
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .nao-imprimir {
+            padding: 10px 20px;
+            background: #d97706;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        @media print {
+            .nao-imprimir { display: none !important; }
+            body { margin: 0; padding: 0; }
+            @page { margin: 1cm; size: landscape; }
+        }
+        
+        /* Table Styles for details */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th, td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 8px 10px;
+            text-align: center;
+            vertical-align: middle;
+            font-size: 11px;
+        }
+
+        .table-header {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: #475569;
+            text-transform: uppercase;
+            font-size: 10px;
+        }
+
+        .col-left { text-align: left; }
+        .font-bold { font-weight: 600; color: #1e293b; }
+    </style>
+</head>
+<body>
+
+    <button onclick="window.print()" class="nao-imprimir">🖨️ Imprimir Dashboard</button>
+
+    <div class="header-title">Dashboard Executivo</div>
+    <div class="header-subtitle">Referência: {{ dados.referencia.mes_atual }} | Emitido em: {{ hoje|date:"d/m/Y H:i" }}</div>
+
+    <div class="cards-grid">
+        <!-- Comercial -->
+        <div class="card">
+            <div class="card-header">Comercial</div>
+            <div class="metric-row">
+                <span class="metric-label">Carteira Total</span>
+                <span class="metric-value">{{ dados.comercial.total_carteira_m2|floatformat:2 }} M²</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Pendente de Entrega</span>
+                <span class="metric-value">{{ dados.comercial.total_pendente_m2|floatformat:2 }} M²</span>
+            </div>
+            <div class="metric-row" style="color: #ef4444;">
+                <span class="metric-label">Pedidos Atrasados</span>
+                <span class="metric-value">{{ dados.comercial.qtd_pedidos_atrasados }} ({{ dados.comercial.m2_atrasado|floatformat:2 }} M²)</span>
+            </div>
+        </div>
+
+        <!-- Produção -->
+        <div class="card">
+            <div class="card-header">Produção (30 Dias)</div>
+            <div class="metric-row">
+                <span class="metric-label">Reqs. Abertas</span>
+                <span class="metric-value">{{ dados.producao.total_reqs_abertas }}</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Volume WIP</span>
+                <span class="metric-value">{{ dados.producao.producao_m2|floatformat:2 }} M²</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Peças WIP</span>
+                <span class="metric-value">{{ dados.producao.producao_pecas|floatformat:0 }}</span>
+            </div>
+        </div>
+
+        <!-- Logística -->
+        <div class="card">
+            <div class="card-header">Logística</div>
+            <div class="metric-row">
+                <span class="metric-label">Embarques Abertos</span>
+                <span class="metric-value">{{ dados.logistica.embarques_abertos }}</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Embarques Finalizados</span>
+                <span class="metric-value">{{ dados.logistica.embarques_finalizados }}</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Vol. Embarcado Mês</span>
+                <span class="metric-value">{{ dados.logistica.volume_embarcado_mes|floatformat:2 }} M²</span>
+            </div>
+        </div>
+    </div>
+    
+    <div style="margin-top: 30px;">
+        <div class="card-header">Detalhamento de Artigos em Produção</div>
+        <table>
+            <tr class="table-header">
+                <td class="col-left">Artigo</td>
+                <td class="col-left">Cliente</td>
+                <td>Data de Início</td>
+                <td>Data Prev. Fim</td>
+                <td>Qtd (Pçs)</td>
+                <td>Total (M²)</td>
+                <td class="col-left">Máquinas / Processos Atuais (WIP)</td>
+            </tr>
+            {% for item in detalhes %}
+            <tr>
+                <td class="col-left font-bold">{{ item.artigo }}</td>
+                <td class="col-left">{{ item.cliente }}</td>
+                <td>
+                    {% if item.data_inicio %}{{ item.data_inicio|date:"d/m/Y" }}{% else %}-{% endif %}
+                </td>
+                <td style="color: {% if item.data_prevista and item.data_prevista < hoje %}#ef4444{% else %}#0f172a{% endif %}; font-weight: bold;">
+                    {% if item.data_prevista %}{{ item.data_prevista|date:"d/m/Y H:i" }}{% else %}-{% endif %}
+                </td>
+                <td>{{ item.qtd|floatformat:0 }}</td>
+                <td>{{ item.m2|floatformat:2 }}</td>
+                <td class="col-left">
+                    <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                    {% for maq in item.maquinas_lista %}
+                        <span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 10px; color: #475569;">
+                            {{ maq.nome }}: <strong style="color: #0f172a;">{{ maq.m2|floatformat:1 }} M²</strong>
+                        </span>
+                    {% endfor %}
+                    </div>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="7" style="padding: 20px; color: #64748b; text-align: center;">Nenhum artigo em produção no momento.</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+</body>
+</html>
