@@ -291,12 +291,14 @@ class RequisicaoAdmin(admin.ModelAdmin):
                     'classes': ('wide',),
                     'fields': [
                         ('setor','cd_requisicao',),
-                        ('artigo','artigo_padrao',), # <--- AGORA ELE VAI APARECER NA TELA DE EDIÇÃO
+                        ('artigo',), # <--- AGORA ELE VAI APARECER NA TELA DE EDIÇÃO
+                        ('artigo_padrao',),
                         ('classe', 'espessura'),
                         ('cor', 'fulao'),
                         ('lote', 'ficha'),
                         ('pallet', 'quantidade'),
-                        ('qt_mt', 'encerrado'),
+                        ('qt_mt','m2'),
+                        ('encerrado'),
                         ('obs'),
                     ]
                 }),

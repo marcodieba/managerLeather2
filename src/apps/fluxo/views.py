@@ -842,10 +842,10 @@ def ler_qrcode_movimentacao(request):
                 requisicao.save()
             elif motivo_diferenca == 'REPROCESSO':
                 proc_rep, _ = Processo.objects.get_or_create(nome="♻️ AGUARDANDO REPROCESSO")
-                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_rep, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False, operador=operador.usuario)
+                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_rep, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
             elif motivo_diferenca == 'NOVO_LOTE':
                 proc_nl, _ = Processo.objects.get_or_create(nome="🔄 SEPARADO P/ NOVO LOTE")
-                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False, operador=operador.usuario)
+                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
             else:
                 ultimo_fechado = requisicao.fluxos.filter(encerrado=True).exclude(id=fluxo.id).order_by('-dt_saida', '-id').first()
                 processo_destino = ultimo_fechado.processo if ultimo_fechado else fluxo.processo
@@ -855,8 +855,8 @@ def ler_qrcode_movimentacao(request):
                     processo=processo_destino,
                     quantidade=qtd_que_ficou,
                     dt_processo=fluxo.dt_processo, 
-                    encerrado=False,
-                    operador=operador.usuario
+                    encerrado=False
+                    # Sem operador: fila aguardando
                 )
                 
                 nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote dividido: {qtd_que_ficou} peças retornaram como pendência para a máquina {processo_destino.nome if processo_destino else 'Inicial'}."
