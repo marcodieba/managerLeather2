@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Processo, Requisicao, FluxoRequisicao, Operador, Justificativa, RequisicaoJustificativa
+from .models import Processo, Requisicao, FluxoRequisicao, Operador, Justificativa, RequisicaoJustificativa, CustoTintaRegistro, CustoFulaoRegistro, FechamentoDiario
 from datetime import datetime
 from src.apps.pedido.models import Pedido
 
@@ -55,16 +55,19 @@ class OperadorSerializer(serializers.ModelSerializer):
 
 class FluxoRequisicaoSerializer(serializers.ModelSerializer):
     processo = serializers.PrimaryKeyRelatedField(queryset=Processo.objects.all())  # Espera apenas o ID
+    processo_nome = serializers.CharField(source='processo.nome', read_only=True)
+    operador_nome = serializers.CharField(source='operador.username', read_only=True, allow_null=True)
 
     class Meta:
         model = FluxoRequisicao
-        fields = ['id', 'processo', 'quantidade', 'encerrado', 'dt_processo', 'dt_saida']
+        fields = ['id', 'processo', 'processo_nome', 'quantidade', 'encerrado', 'dt_processo', 'dt_saida', 'operador_nome']
 
 class RequisicaoSerializer(serializers.ModelSerializer):
     fluxos = FluxoRequisicaoSerializer(many=True, read_only=True)
     justificativas_registadas = RequisicaoJustificativaSerializer(many=True, read_only=True)
     risco_atraso = serializers.SerializerMethodField()
     artigo_generico = serializers.CharField(source='artigo_padrao.nome', read_only=True)
+    fulao = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = Requisicao
@@ -72,7 +75,8 @@ class RequisicaoSerializer(serializers.ModelSerializer):
             'id', 'data', 'cd_requisicao', 'artigo', 'nr_pedido', 'quantidade', 'lote', 
             'dt_requisicao', 'modificado', 'encerrado', 'fluxos', 'setor', 'qt_mt', 'm2', 'qt',
             'am', 'exp_qt', 'exp_m2', 'exp_am', 'rend', 'kg_blue', 'seco', 'justificativas_registadas',
-            'custo_requisicao', 'risco_atraso', 'artigo_generico'
+            'custo_requisicao', 'risco_atraso', 'artigo_generico',
+            'cor', 'espessura', 'classe', 'fulao'
         ]
 
     def get_risco_atraso(self, obj):
@@ -113,3 +117,47 @@ class RequisicaoSerializer(serializers.ModelSerializer):
             )
 
         return instance
+
+
+# ============================================================
+# MÓDULO 1: Custo Acabamento Tinta
+# ============================================================
+
+class CustoTintaSerializer(serializers.ModelSerializer):
+    maquina_display = serializers.CharField(source='get_maquina_display', read_only=True)
+
+    class Meta:
+        model  = CustoTintaRegistro
+        fields = [
+            'id', 'data', 'maquina', 'maquina_display',
+            'consumo_kg', 'pecas', 'metros2', 'media_kg_m2', 'criado_em',
+        ]
+        read_only_fields = ['media_kg_m2', 'criado_em']
+
+
+# ============================================================
+# MÓDULO 2: Custo Fulões Recurtimento
+# ============================================================
+
+class CustoFulaoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = CustoFulaoRegistro
+        fields = [
+            'id', 'data', 'artigo',
+            'custo_kg_inicial', 'custo_kg_total', 'rendimento',
+            'custo_extra_kg', 'custo_m2', 'criado_em',
+        ]
+        read_only_fields = ['custo_extra_kg', 'custo_m2', 'criado_em']
+
+
+# ============================================================
+# MÓDULO 3: Fechamento Diário
+# ============================================================
+
+class FechamentoDiarioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = FechamentoDiario
+        fields = ['id', 'data', 'turno_dia', 'turno_noite', 'total', 'obs', 'criado_em']
+        read_only_fields = ['total', 'criado_em']
+
+

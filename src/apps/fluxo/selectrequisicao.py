@@ -31,7 +31,7 @@ class SelectRequisicao(object):
 
     def requisicao(self):
         cursor = self.conexao()
-        cursor.execute(""" SELECT TOP 15
+        cursor.execute(""" SELECT TOP 20
                                     Requisicao.Codigo,
                                     Requisicao.Dt_Hr_Requisicao,
 

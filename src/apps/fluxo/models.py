@@ -272,6 +272,7 @@ class FluxoRequisicao(models.Model):
     dt_processo = models.DateTimeField(('Data e Hora de Entrada'), null=True, blank=True)
     dt_saida = models.DateTimeField(('Data e Hora de Saída'), null=True, blank=True)
     encerrado = models.BooleanField(('Encerrado neste setor?'), default=False)
+    operador = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Operador")
 
     @classmethod
     def from_db(cls, db, field_names, values):
@@ -351,3 +352,116 @@ class RequisicaoJustificativa(models.Model):
 
     def __str__(self):
         return f"{self.requisicao.cd_requisicao} - {self.justificativa.nome}: {self.quantidade}"
+
+
+# ============================================================
+# MÓDULO 1: Custo Acabamento Tinta
+# ============================================================
+
+class CustoTintaRegistro(models.Model):
+    """Registro diário de consumo de tinta por máquina de acabamento."""
+
+    MAQUINA_CHOICES = [
+        ('MAQ1',    'Máquina 1'),
+        ('MAQ2',    'Máquina 2'),
+        ('CORTINA', 'Cortina'),
+        ('TOP',     'Top'),
+    ]
+
+    data         = models.DateField(('Data'), null=False, blank=False)
+    maquina      = models.CharField(('Máquina'), max_length=10, choices=MAQUINA_CHOICES)
+    consumo_kg   = models.DecimalField(('Consumo (KG)'), max_digits=10, decimal_places=3)
+    pecas        = models.IntegerField(('Peças'))
+    metros2      = models.DecimalField(('M²'), max_digits=12, decimal_places=3)
+
+    # Campo calculado (salvo para facilitar relatórios / histórico)
+    media_kg_m2  = models.DecimalField(('Média KG/m²'), max_digits=10, decimal_places=4,
+                                        null=True, blank=True)
+
+    criado_em    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering             = ['-data', 'maquina']
+        verbose_name         = 'Custo Tinta — Registro'
+        verbose_name_plural  = 'Custo Tinta — Registros'
+        # Um registro por máquina por dia
+        unique_together      = ('data', 'maquina')
+
+    def save(self, *args, **kwargs):
+        if self.metros2 and self.metros2 != 0:
+            self.media_kg_m2 = round(self.consumo_kg / self.metros2, 4)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.data} | {self.get_maquina_display()} — {self.media_kg_m2} KG/m²"
+
+
+# ============================================================
+# MÓDULO 2: Custo Fulões Recurtimento
+# ============================================================
+
+class CustoFulaoRegistro(models.Model):
+    """Registro de custo por artigo no processo de recurtimento em fulão."""
+
+    data                  = models.DateField(('Data'), null=False, blank=False)
+    artigo                = models.CharField(('Artigo'), max_length=150)
+    custo_kg_inicial      = models.DecimalField(('R$/KG Inicial'), max_digits=10, decimal_places=4)
+    custo_kg_total        = models.DecimalField(('R$/KG Total'), max_digits=10, decimal_places=4)
+    rendimento            = models.DecimalField(('Rendimento (m²/kg)'), max_digits=10, decimal_places=4)
+
+    # Campos calculados (persistidos para histórico)
+    custo_extra_kg        = models.DecimalField(('Custo Extra (R$/KG)'), max_digits=10, decimal_places=4,
+                                                null=True, blank=True)
+    custo_m2              = models.DecimalField(('Custo M² (R$)'), max_digits=10, decimal_places=4,
+                                                null=True, blank=True)
+
+    criado_em             = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering            = ['-data', 'artigo']
+        verbose_name        = 'Custo Fulão — Registro'
+        verbose_name_plural = 'Custo Fulão — Registros'
+
+    def save(self, *args, **kwargs):
+        # Custo Extra (R$/KG) = R$/KG Total - R$/KG Inicial
+        self.custo_extra_kg = self.custo_kg_total - self.custo_kg_inicial
+        # Custo M² = R$/KG Total × Rendimento
+        self.custo_m2 = self.custo_kg_total * self.rendimento
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.data} | {self.artigo} — Custo M² R$ {self.custo_m2}"
+
+
+# ============================================================
+# MÓDULO 3: Fechamento Diário (Flávio)
+# ============================================================
+
+class FechamentoDiario(models.Model):
+    """Registro diário de produção por turno (Dia + Noite = Total)."""
+
+    data           = models.DateField(('Data'), unique=True, null=False, blank=False)
+    turno_dia      = models.DecimalField(('Produção Turno Dia (m²)'), max_digits=12, decimal_places=2)
+    turno_noite    = models.DecimalField(('Produção Turno Noite (m²)'), max_digits=12, decimal_places=2)
+
+    # Campo calculado
+    total          = models.DecimalField(('Total (m²)'), max_digits=12, decimal_places=2,
+                                         null=True, blank=True)
+
+    obs            = models.TextField(('Observação'), blank=True, default='')
+    criado_em      = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering            = ['-data']
+        verbose_name        = 'Fechamento Diário'
+        verbose_name_plural = 'Fechamentos Diários'
+
+    def save(self, *args, **kwargs):
+        self.total = self.turno_dia + self.turno_noite
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.data} | Total: {self.total} m²"
+
+
+

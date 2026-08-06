@@ -1199,3 +1199,236 @@ imprimir_pedido_data_view = imprimirpedidodataview
 simulador_logistica_view = simuladorlogisticaview
 salvar_layout_logistica = salvarlayoutlogistica
 converter_previsao_para_embarque = converter_previsao_para_embarque_view
+
+def imprimir_status_producao_view(request):
+    from rest_framework.test import APIRequestFactory, force_authenticate
+    from .api_views import api_pedidos_dashboard_producao
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    
+    factory = APIRequestFactory()
+    req = factory.get('/')
+    req.GET = request.GET.copy()
+    force_authenticate(req, user=User.objects.first())
+    
+    try:
+        response = api_pedidos_dashboard_producao(req)
+        dados = response.data
+    except Exception as e:
+        dados = []
+        
+    context = {
+        'pedidos': dados,
+        'hoje': timezone.now()
+    }
+    return render(request, 'status_producao_print.html', context)
+
+def imprimir_pedido_interno_view(request):
+    from rest_framework.test import APIRequestFactory, force_authenticate
+    from .api_views import api_pedidos_internos
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    
+    factory = APIRequestFactory()
+    req = factory.get('/')
+    req.GET = request.GET.copy()
+    force_authenticate(req, user=User.objects.first())
+    
+    try:
+        response = api_pedidos_internos(req)
+        dados = response.data
+    except Exception as e:
+        dados = []
+
+    pedidos = dados if isinstance(dados, list) else []
+
+    from collections import OrderedDict
+    from datetime import datetime, timedelta
+    
+    for p in pedidos:
+        q = float(p.get("quantidade") or 0)
+        qe = float(p.get("quantidade_entregue") or 0)
+        p["saldo"] = q - qe
+        
+        if p.get("dt_embarque"):
+            p["dt_embarque_obj"] = datetime.fromisoformat(p["dt_embarque"])
+        if p.get("dt_programada"):
+            p["dt_programada_obj"] = datetime.fromisoformat(p["dt_programada"])
+
+    hoje = timezone.now()
+    
+    context = {
+        'pedidos': pedidos,
+        'hoje': hoje,
+    }
+    return render(request, 'pedido_interno_print.html', context)
+
+def add_business_hours(start_date, hours_to_add):
+    from datetime import timedelta
+    date = start_date
+    
+    # Se for final de semana, pula para segunda-feira às 08:00
+    if date.weekday() == 6: # Domingo
+        date += timedelta(days=1)
+        date = date.replace(hour=8, minute=0, second=0, microsecond=0)
+    elif date.weekday() == 5: # Sábado
+        date += timedelta(days=2)
+        date = date.replace(hour=8, minute=0, second=0, microsecond=0)
+        
+    # Se estiver fora do expediente, ajusta para o início do próximo expediente
+    if date.hour >= 18:
+        date += timedelta(days=1)
+        date = date.replace(hour=8, minute=0, second=0, microsecond=0)
+        if date.weekday() == 5:
+            date += timedelta(days=2)
+    elif date.hour < 8:
+        date = date.replace(hour=8, minute=0, second=0, microsecond=0)
+        
+    remaining_hours = hours_to_add
+    
+    while remaining_hours > 0:
+        hours_left_today = 18 - date.hour - (date.minute / 60.0)
+        
+        if remaining_hours <= hours_left_today:
+            date += timedelta(hours=remaining_hours)
+            remaining_hours = 0
+        else:
+            remaining_hours -= hours_left_today
+            date += timedelta(days=1)
+            date = date.replace(hour=8, minute=0, second=0, microsecond=0)
+            
+            if date.weekday() == 5: # Sábado -> Segunda
+                date += timedelta(days=2)
+                
+    return date
+
+def imprimir_dashboard_executivo_view(request):
+    from rest_framework.test import APIRequestFactory, force_authenticate
+    from .api_views import api_dashboard
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    
+    factory = APIRequestFactory()
+    req = factory.get('/')
+    req.GET = request.GET.copy()
+    force_authenticate(req, user=User.objects.first())
+    
+    try:
+        response = api_dashboard(req)
+        dados = response.data
+    except Exception as e:
+        dados = {}
+        
+    # --- NOVO: GERAR DETALHES DE PRODUÇÃO POR ARTIGO E MÁQUINA ---
+    from src.apps.fluxo.models import Requisicao
+    from datetime import datetime
+    now = datetime.now()
+    
+    requisicoes = Requisicao.objects.filter(encerrado=False).select_related('artigo_padrao').prefetch_related('fluxos__processo', 'pedido_links__pedido')
+    
+    # 🌟 APLICAR FILTROS VINDOS DO FRONTEND 🌟
+    setor_param = request.GET.get('setor')
+    data_inicio_param = request.GET.get('data_inicio')
+    data_fim_param = request.GET.get('data_fim')
+    artigo_param = request.GET.get('artigo')
+    pedido_param = request.GET.get('pedido')
+    lote_param = request.GET.get('lote')
+
+    if setor_param and setor_param != 'Todos':
+        requisicoes = requisicoes.filter(setor=setor_param)
+        
+    if data_inicio_param:
+        try:
+            dt_inicio = datetime.strptime(data_inicio_param, '%Y-%m-%d')
+            requisicoes = requisicoes.filter(data__gte=dt_inicio)
+        except:
+            pass
+            
+    if data_fim_param:
+        try:
+            dt_fim = datetime.strptime(data_fim_param, '%Y-%m-%d')
+            requisicoes = requisicoes.filter(data__lte=dt_fim.replace(hour=23, minute=59, second=59))
+        except:
+            pass
+            
+    if artigo_param:
+        requisicoes = requisicoes.filter(artigo__icontains=artigo_param)
+        
+    if pedido_param:
+        requisicoes = requisicoes.filter(pedido_links__pedido__cd_pedido__icontains=pedido_param)
+        
+    if lote_param:
+        requisicoes = requisicoes.filter(lote__icontains=lote_param)
+    
+    # Agrupar por (Artigo Nome, Cliente Nome)
+    detalhes_dict = {}
+    
+    for req_obj in requisicoes:
+        artigo_nome = req_obj.artigo_padrao.nome if req_obj.artigo_padrao else (req_obj.artigo or "Desconhecido")
+        
+        # Pega cliente do primeiro pedido vinculado, se houver
+        cliente_nome = "Estoque/Interno"
+        link = req_obj.pedido_links.first()
+        if link and link.pedido and link.pedido.cliente:
+            cliente_nome = link.pedido.cliente
+            
+        key = (artigo_nome, cliente_nome)
+        
+        if key not in detalhes_dict:
+            meta_mes = req_obj.artigo_padrao.meta_mes if req_obj.artigo_padrao else 0
+            # Capacidade m2/h = (meta mensal) / 22 dias / 10h. Padrão 80 se zerado.
+            cap_m2h = float(meta_mes) / 220.0 if meta_mes and meta_mes > 0 else 80.0
+            
+            detalhes_dict[key] = {
+                'artigo': artigo_nome,
+                'cliente': cliente_nome,
+                'qtd': 0,
+                'm2': 0,
+                'data_inicio': req_obj.data,
+                'maquinas': {},
+                'cap_m2h': cap_m2h
+            }
+            
+        # Acumula Qtd e M²
+        detalhes_dict[key]['qtd'] += float(req_obj.quantidade or req_obj.qt or 0)
+        detalhes_dict[key]['m2'] += float(req_obj.qt_mt or req_obj.m2 or 0)
+        
+        # Pega a data mais antiga
+        if req_obj.data and (not detalhes_dict[key]['data_inicio'] or req_obj.data < detalhes_dict[key]['data_inicio']):
+            detalhes_dict[key]['data_inicio'] = req_obj.data
+            
+        # Distribui nas máquinas (se tem fluxo aberto)
+        fluxos_abertos = [f for f in req_obj.fluxos.all() if not f.encerrado]
+        if fluxos_abertos:
+            # Assume que o lote está no primeiro fluxo não encerrado
+            f_atual = fluxos_abertos[0]
+            maquina_nome = f_atual.processo.nome if f_atual.processo else "Fila"
+            if maquina_nome not in detalhes_dict[key]['maquinas']:
+                detalhes_dict[key]['maquinas'][maquina_nome] = 0
+            detalhes_dict[key]['maquinas'][maquina_nome] += float(req_obj.qt_mt or req_obj.m2 or 0)
+            
+    # Formata a lista e calcula a previsão de fim
+    detalhes_lista = []
+    for d in detalhes_dict.values():
+        if d['m2'] > 0:
+            horas_restantes = d['m2'] / d['cap_m2h']
+            data_prevista = add_business_hours(now, horas_restantes)
+            d['data_prevista'] = data_prevista
+        else:
+            d['data_prevista'] = None
+            
+        # Formata a lista de máquinas para exibição
+        d['maquinas_lista'] = [{'nome': k, 'm2': v} for k, v in d['maquinas'].items()]
+        
+        detalhes_lista.append(d)
+        
+    detalhes_lista.sort(key=lambda x: x['m2'], reverse=True)
+    # -------------------------------------------------------------
+        
+    from django.utils import timezone
+    context = {
+        'dados': dados,
+        'detalhes': detalhes_lista,
+        'hoje': timezone.now()
+    }
+    return render(request, 'dashboard_executivo_print.html', context)

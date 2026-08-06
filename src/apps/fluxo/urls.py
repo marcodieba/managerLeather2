@@ -15,13 +15,13 @@ router.register(r'justificativas', views.JustificativaViewSet)
 
 urlpatterns = [
     # ---------------------------------------------------------
-    # CRUD PADRÃO DO REST FRAMEWORK (Já funciona perfeitamente)
-    # ---------------------------------------------------------
-    path('', include(router.urls)),
-    
     # ---------------------------------------------------------
     # ROTAS LEGADAS (Manter ativas até o React substituir o HTML)
     # ---------------------------------------------------------
+    path("imprimir/relatorio-fulao/", views.imprimir_relatorio_fulao_view, name="imprimir_relatorio_fulao"),
+    path("imprimir/relatorio-tinta/", views.imprimir_relatorio_tinta_view, name="imprimir_relatorio_tinta"),
+    path("imprimir/relatorio-rendimento/", views.imprimir_relatorio_rendimento_view, name="imprimir_relatorio_rendimento"),
+    path("imprimir/lista-requisicoes/", views.imprimir_lista_requisicoes_view, name="imprimir_lista_requisicoes"),
     path("imprimir/", views.imprimir_rendimento_view, name="imprimir_rendimento"),
     path("imprimir/maquina/", views.imprimir_maquina_view, name="imprimir_maquina"),
     path("imprimir/relatorio-geral/", views.imprimir_relatorio_geral_view, name="imprimir_relatorio_geral"),
@@ -53,4 +53,25 @@ urlpatterns = [
     
     path('v1/sync-ordens-servico/', api_views.api_sync_ordens_servico, name='api_v1_sync_ordens_servico'),
     path('v1/sync-selectrequisicao/', api_views.api_sync_selectrequisicao, name='api_v1_sync_selectrequisicao'),
+
+    # ── Módulo 1: Custo Acabamento Tinta ──────────────────────
+    path('v1/custo-tinta/', api_views.api_custo_tinta, name='api_v1_custo_tinta'),
+    path('v1/custo-tinta/<int:pk>/', api_views.api_custo_tinta_detail, name='api_v1_custo_tinta_detail'),
+
+    # ── Módulo 2: Custo Fulões Recurtimento ───────────────────
+    path('v1/custo-fulao/', api_views.api_custo_fulao, name='api_v1_custo_fulao'),
+    path('v1/custo-fulao/<int:pk>/', api_views.api_custo_fulao_detail, name='api_v1_custo_fulao_detail'),
+    path('v1/custo-fulao/preview-requisicoes/', api_views.api_custo_fulao_preview_requisicoes, name='api_v1_custo_fulao_preview'),
+    path('v1/custo-fulao/importar-requisicoes/', api_views.api_custo_fulao_importar_requisicoes, name='api_v1_custo_fulao_importar'),
+
+    # ── Módulo 3: Fechamento Diário (Flávio) ──────────────────
+    path('v1/fechamento-diario/', api_views.api_fechamento_diario, name='api_v1_fechamento_diario'),
+    path('v1/fechamento-diario/preview/', api_views.api_fechamento_diario_preview, name='api_v1_fechamento_diario_preview'),
+    path('v1/fechamento-diario/importar/', api_views.api_fechamento_diario_importar, name='api_v1_fechamento_diario_importar'),
+    path('v1/fechamento-diario/<int:pk>/', api_views.api_fechamento_diario_detail, name='api_v1_fechamento_diario_detail'),
+
+    # ---------------------------------------------------------
+    # CRUD PADRÃO DO REST FRAMEWORK (Já funciona perfeitamente)
+    # ---------------------------------------------------------
+    path('', include(router.urls)),
 ]

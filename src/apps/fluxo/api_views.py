@@ -86,16 +86,19 @@ def api_leitor_requisicao_info(request, cd_requisicao):
             return Response({"cd_requisicao": req.cd_requisicao, "quantidade": total_requisicao})
             
         qtd_ja_entrou_aqui = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_id))
-        tem_outro_processo = req.fluxos.exclude(processo_id=processo_id).exists()
+        fluxos_disponiveis = req.fluxos.filter(encerrado=False)
         
-        if not tem_outro_processo:
+        if not fluxos_disponiveis.exists():
             qtd_sugerida = total_requisicao - qtd_ja_entrou_aqui
         else:
-            saldo_disponivel_anterior = sum(
-                (f.quantidade or 0) 
-                for f in req.fluxos.filter(encerrado=False).exclude(processo_id=processo_id)
-            )
-            qtd_sugerida = saldo_disponivel_anterior
+            qtd_sugerida = 0
+            for f in fluxos_disponiveis:
+                if not f.processo:
+                    continue
+                nome_proc = f.processo.nome.upper()
+                is_generica = "AGUARDANDO" in nome_proc or "RECURTIMENTO" in nome_proc or "DESCARREGAMENTO" in nome_proc
+                if str(f.processo.id) == str(processo_id) or is_generica:
+                    qtd_sugerida += (f.quantidade or 0)
             
         if qtd_sugerida < 0:
             qtd_sugerida = 0
@@ -463,3 +466,451 @@ def api_heatmap_produtividade(request):
     ).order_by('dia_semana', 'hora')
     
     return Response(list(agrupado))
+
+
+# ============================================================
+# MÓDULO 1: Custo Acabamento Tinta
+# ============================================================
+
+from .models import CustoTintaRegistro
+from .serializers import CustoTintaSerializer
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def api_custo_tinta(request):
+    """
+    GET  ?mes=YYYY-MM  → lista registros do mês (padrão: mês atual)
+    POST               → cria um novo registro (calcula media_kg_m2 automaticamente)
+    """
+    if request.method == 'GET':
+        mes_param = request.query_params.get('mes')
+        if mes_param:
+            try:
+                ano, mes = [int(x) for x in mes_param.split('-')]
+            except ValueError:
+                return Response({'error': 'Formato de mês inválido. Use YYYY-MM.'}, status=400)
+        else:
+            hoje = date.today()
+            ano, mes = hoje.year, hoje.month
+
+        registros = CustoTintaRegistro.objects.filter(
+            data__year=ano,
+            data__month=mes,
+        )
+        serializer = CustoTintaSerializer(registros, many=True)
+        return Response(serializer.data)
+
+    # POST
+    serializer = CustoTintaSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def api_custo_tinta_detail(request, pk):
+    """
+    PUT    → atualiza um registro existente
+    DELETE → remove um registro
+    """
+    try:
+        registro = CustoTintaRegistro.objects.get(pk=pk)
+    except CustoTintaRegistro.DoesNotExist:
+        return Response({'error': 'Registro não encontrado.'}, status=404)
+
+    if request.method == 'PUT':
+        serializer = CustoTintaSerializer(registro, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+    registro.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ============================================================
+# MÓDULO 2: Custo Fulões Recurtimento
+# ============================================================
+
+from .models import CustoFulaoRegistro
+from .serializers import CustoFulaoSerializer
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def api_custo_fulao(request):
+    """
+    GET  ?mes=YYYY-MM  → lista registros do mês (padrão: mês atual)
+    POST               → cria novo registro (custo_extra_kg e custo_m2 calculados no model)
+    """
+    if request.method == 'GET':
+        mes_param = request.query_params.get('mes')
+        if mes_param:
+            try:
+                ano, mes = [int(x) for x in mes_param.split('-')]
+            except ValueError:
+                return Response({'error': 'Formato de mês inválido. Use YYYY-MM.'}, status=400)
+        else:
+            hoje = date.today()
+            ano, mes = hoje.year, hoje.month
+
+        registros = CustoFulaoRegistro.objects.filter(data__year=ano, data__month=mes)
+        serializer = CustoFulaoSerializer(registros, many=True)
+        return Response(serializer.data)
+
+    serializer = CustoFulaoSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def api_custo_fulao_detail(request, pk):
+    """PUT → atualiza | DELETE → remove"""
+    try:
+        registro = CustoFulaoRegistro.objects.get(pk=pk)
+    except CustoFulaoRegistro.DoesNotExist:
+        return Response({'error': 'Registro não encontrado.'}, status=404)
+
+    if request.method == 'PUT':
+        serializer = CustoFulaoSerializer(registro, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+    registro.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Módulo 2: importação automática a partir das Requisições ──────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_custo_fulao_preview_requisicoes(request):
+    """
+    GET ?mes=YYYY-MM
+    Retorna as requisições do mês que já têm custo calculado,
+    formatadas no layout do CustoFulaoRegistro, SEM salvar nada.
+    Usado para pré-visualizar antes de importar.
+    """
+    mes_param = request.query_params.get('mes')
+    if mes_param:
+        try:
+            ano, mes = [int(x) for x in mes_param.split('-')]
+        except ValueError:
+            return Response({'error': 'Formato inválido. Use YYYY-MM.'}, status=400)
+    else:
+        hoje = date.today()
+        ano, mes = hoje.year, hoje.month
+
+    # Requisições do mês que já têm custo calculado pelo botão de custo
+    requisicoes = Requisicao.objects.filter(
+        dt_requisicao__year=ano,
+        dt_requisicao__month=mes,
+        custo_requisicao__isnull=False,
+        custo_requisicao__gt=0,
+    ).values(
+        'cd_requisicao', 'artigo', 'dt_requisicao',
+        'custo_requisicao_inicial', 'custo_requisicao', 'rend',
+    )
+
+    resultado = []
+    for r in requisicoes:
+        ini   = float(r['custo_requisicao_inicial'] or 0)
+        total = float(r['custo_requisicao'] or 0)
+        rend  = float(r['rend'] or 0)
+        resultado.append({
+            'cd_requisicao':   r['cd_requisicao'],
+            'artigo':          r['artigo'] or '—',
+            'data':            r['dt_requisicao'].strftime('%Y-%m-%d') if r['dt_requisicao'] else None,
+            'custo_kg_inicial': round(ini, 4),
+            'custo_kg_total':   round(total, 4),
+            'rendimento':       round(rend, 4),
+            # Campos calculados antecipados para prévia
+            'custo_extra_kg':  round(total - ini, 4),
+            'custo_m2':        round(total * rend, 4),
+        })
+
+    return Response(resultado)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def api_custo_fulao_importar_requisicoes(request):
+    """
+    POST { mes: 'YYYY-MM' }
+    Importa/atualiza os registros de CustoFulaoRegistro a partir das
+    requisições do mês que já têm custo calculado. Usa update_or_create
+    para não duplicar (chave: data + artigo + cd_requisicao).
+    Retorna resumo: { importados, atualizados, ignorados }.
+    """
+    mes_param = request.data.get('mes')
+    if not mes_param:
+        hoje = date.today()
+        mes_param = hoje.strftime('%Y-%m')
+
+    try:
+        ano, mes = [int(x) for x in mes_param.split('-')]
+    except ValueError:
+        return Response({'error': 'Formato inválido. Use YYYY-MM.'}, status=400)
+
+    requisicoes = Requisicao.objects.filter(
+        dt_requisicao__year=ano,
+        dt_requisicao__month=mes,
+        custo_requisicao__isnull=False,
+        custo_requisicao__gt=0,
+    )
+
+    importados = atualizados = ignorados = 0
+
+    for req in requisicoes:
+        ini   = float(req.custo_requisicao_inicial or 0)
+        total = float(req.custo_requisicao or 0)
+        rend  = float(req.rend or 0)
+
+        if not req.artigo or total == 0:
+            ignorados += 1
+            continue
+
+        data_ref = req.dt_requisicao.date() if req.dt_requisicao else date(ano, mes, 1)
+        # Chave única: data + artigo (um registro por artigo/dia)
+        obj, created = CustoFulaoRegistro.objects.update_or_create(
+            data=data_ref,
+            artigo=req.artigo,
+            defaults={
+                'custo_kg_inicial': ini,
+                'custo_kg_total':   total,
+                'rendimento':       rend,
+            }
+        )
+
+        if created:
+            importados += 1
+        else:
+            atualizados += 1
+
+    return Response({
+        'sucesso': True,
+        'importados':  importados,
+        'atualizados': atualizados,
+        'ignorados':   ignorados,
+        'mensagem': f'{importados} importados, {atualizados} atualizados, {ignorados} ignorados.',
+    })
+
+
+# ============================================================
+# MÓDULO 3: Fechamento Diário (Flávio)
+# ============================================================
+
+from .models import FechamentoDiario
+from .serializers import FechamentoDiarioSerializer
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def api_fechamento_diario(request):
+    """
+    GET  ?mes=YYYY-MM  → lista registros do mês com acumulado calculado
+    POST               → cria novo fechamento diário (total calculado no model)
+    """
+    if request.method == 'GET':
+        mes_param = request.query_params.get('mes')
+        if mes_param:
+            try:
+                ano, mes = [int(x) for x in mes_param.split('-')]
+            except ValueError:
+                return Response({'error': 'Formato inválido. Use YYYY-MM.'}, status=400)
+        else:
+            hoje = date.today()
+            ano, mes = hoje.year, hoje.month
+
+        registros = FechamentoDiario.objects.filter(
+            data__year=ano, data__month=mes
+        ).order_by('data')
+
+        serializer = FechamentoDiarioSerializer(registros, many=True)
+
+        # Enriquecer com acumulado progressivo (calculado no backend)
+        acumulado = 0
+        resultado = []
+        for item in serializer.data:
+            acumulado += float(item['total'] or 0)
+            resultado.append({**item, 'acumulado': round(acumulado, 2)})
+
+        return Response(resultado)
+
+    serializer = FechamentoDiarioSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def api_fechamento_diario_detail(request, pk):
+    """PUT → atualiza | DELETE → remove"""
+    try:
+        registro = FechamentoDiario.objects.get(pk=pk)
+    except FechamentoDiario.DoesNotExist:
+        return Response({'error': 'Registro não encontrado.'}, status=404)
+
+    if request.method == 'PUT':
+        serializer = FechamentoDiarioSerializer(registro, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+    registro.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_fechamento_diario_preview(request):
+    """
+    GET ?mes=YYYY-MM
+    Lê o FluxoRequisicao (saídas na Medidora) e devolve um resumo
+    agrupado por data (dia), separando Turno Dia e Turno Noite.
+    Não salva nada — é apenas uma prévia para o usuário revisar.
+    """
+    mes_param = request.query_params.get('mes')
+    if not mes_param:
+        hoje = date.today()
+        ano, mes = hoje.year, hoje.month
+    else:
+        try:
+            ano, mes = [int(x) for x in mes_param.split('-')]
+        except ValueError:
+            return Response({'error': 'Formato inválido. Use YYYY-MM.'}, status=400)
+
+    from .models import FluxoRequisicao
+    from collections import defaultdict
+
+    # Busca os fluxos de saída na Medidora para o mês
+    fluxos = FluxoRequisicao.objects.select_related('requisicao').filter(
+        dt_saida__year=ano,
+        dt_saida__month=mes,
+        processo__nome__icontains='medidora',
+        dt_saida__isnull=False,
+    )
+
+    # Agrupa por data
+    por_data = defaultdict(lambda: {'turno_dia': 0.0, 'turno_noite': 0.0})
+
+    for f in fluxos:
+        req = f.requisicao
+        is_encerrado = req.encerrado
+        val = (req.m2 or req.qt_mt or 0) if is_encerrado else (req.qt_mt or req.m2 or 0)
+        total_metros = float(val or 0)
+
+        pcs_total = req.quantidade if req.quantidade and req.quantidade > 0 else 1
+        metros_por_peca = total_metros / pcs_total
+        qty = f.quantidade or 0
+        mts = qty * metros_por_peca
+
+        data_saida = f.dt_saida.date()
+        hora = f.dt_saida.hour + (f.dt_saida.minute / 60.0)
+
+        # Turno Dia: 03:00 às 21:59  |  Turno Noite: 22:00 às 02:59
+        if 3.0 <= hora < 22.0:
+            por_data[data_saida]['turno_dia'] += mts
+        else:
+            por_data[data_saida]['turno_noite'] += mts
+
+    resultado = sorted([
+        {
+            'data': str(d),
+            'turno_dia': round(v['turno_dia'], 2),
+            'turno_noite': round(v['turno_noite'], 2),
+            'total': round(v['turno_dia'] + v['turno_noite'], 2),
+        }
+        for d, v in por_data.items()
+        if v['turno_dia'] + v['turno_noite'] > 0
+    ], key=lambda x: x['data'])
+
+    return Response(resultado)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def api_fechamento_diario_importar(request):
+    """
+    POST { mes: 'YYYY-MM' }
+    Importa (ou atualiza) os dados da Medidora para FechamentoDiario.
+    Usa update_or_create pela data, então é idempotente.
+    """
+    mes_param = request.data.get('mes')
+    if not mes_param:
+        return Response({'error': 'Campo mes é obrigatório (YYYY-MM).'}, status=400)
+    try:
+        ano, mes = [int(x) for x in mes_param.split('-')]
+    except ValueError:
+        return Response({'error': 'Formato inválido. Use YYYY-MM.'}, status=400)
+
+    from .models import FluxoRequisicao, FechamentoDiario
+    from collections import defaultdict
+
+    fluxos = FluxoRequisicao.objects.select_related('requisicao').filter(
+        dt_saida__year=ano,
+        dt_saida__month=mes,
+        processo__nome__icontains='medidora',
+        dt_saida__isnull=False,
+    )
+
+    por_data = defaultdict(lambda: {'turno_dia': 0.0, 'turno_noite': 0.0})
+
+    for f in fluxos:
+        req = f.requisicao
+        is_encerrado = req.encerrado
+        val = (req.m2 or req.qt_mt or 0) if is_encerrado else (req.qt_mt or req.m2 or 0)
+        total_metros = float(val or 0)
+        pcs_total = req.quantidade if req.quantidade and req.quantidade > 0 else 1
+        metros_por_peca = total_metros / pcs_total
+        qty = f.quantidade or 0
+        mts = qty * metros_por_peca
+        data_saida = f.dt_saida.date()
+        hora = f.dt_saida.hour + (f.dt_saida.minute / 60.0)
+
+        if 3.0 <= hora < 22.0:
+            por_data[data_saida]['turno_dia'] += mts
+        else:
+            por_data[data_saida]['turno_noite'] += mts
+
+    importados = 0
+    atualizados = 0
+    ignorados = 0
+
+    for d, v in por_data.items():
+        if v['turno_dia'] + v['turno_noite'] <= 0:
+            ignorados += 1
+            continue
+        _, created = FechamentoDiario.objects.update_or_create(
+            data=d,
+            defaults={
+                'turno_dia':   round(v['turno_dia'],   2),
+                'turno_noite': round(v['turno_noite'], 2),
+            }
+        )
+        if created:
+            importados += 1
+        else:
+            atualizados += 1
+
+    return Response({
+        'importados': importados,
+        'atualizados': atualizados,
+        'ignorados': ignorados,
+        'mensagem': f'{importados} importados, {atualizados} atualizados, {ignorados} ignorados.',
+    })
+
+
+

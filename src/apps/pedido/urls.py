@@ -9,8 +9,12 @@ urlpatterns = [
     # ---------------------------------------------------------
     path("dashboard/", views.dashboard_view, name="dashboard_gerencial"),
     path("imprimir/", views.imprimir_pedido_view, name="imprimir_pedido"),
-    path("imprimir_data/", views.imprimir_pedido_data_view, name="imprimir_pedido_data"),
-    path("simulador/", views.simulador_logistica_view, name="simulador_logistica"),
+    path("imprimir/por-data/", views.imprimir_pedido_data_view, name="imprimir_pedido_data"),
+    path("imprimir/status-producao/", views.imprimir_status_producao_view, name="imprimir_status_producao"),
+    path("imprimir/pedido-interno/", views.imprimir_pedido_interno_view, name="imprimir_pedido_interno"),
+    path("imprimir/dashboard-executivo/", views.imprimir_dashboard_executivo_view, name="imprimir_dashboard_executivo"),
+    
+    path("simulador-logistica/", views.simulador_logistica_view, name="simulador_logistica"),
     path("embarques/", views.embarques_list_view, name="embarques_list"),
     path("embarques/<int:pk>/", views.embarque_detail_view, name="embarque_detail"),
     path("embarques/<int:pk>/imprimir/", views.embarque_print_view, name="embarque_print"),
