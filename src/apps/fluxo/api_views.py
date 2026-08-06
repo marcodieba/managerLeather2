@@ -383,19 +383,34 @@ def api_sync_ordens_servico(request):
     Inicia o processo manual (via clique no botão) para sincronizar e encerrar
     as requisições locais com base nas Ordens de Serviço do Marca_Evolution.
     """
-    sync_tool = SyncOrdemServico()
-    resultado = sync_tool.sync_e_encerra_requisicoes()
-    
-    if resultado.get("sucesso"):
-        return Response({
-            'sucesso': True,
-            'mensagem': f'Sincronização concluída! {resultado.get("atualizadas")} requisições encerradas.',
-            'logs': resultado.get("logs")
-        })
-    else:
+    import traceback
+    try:
+        sync_tool = SyncOrdemServico()
+        resultado = sync_tool.sync_e_encerra_requisicoes()
+
+        if resultado.get("sucesso"):
+            atualizadas = resultado.get("atualizadas", 0)
+            encerradas  = resultado.get("encerradas", 0)
+            return Response({
+                'sucesso': True,
+                'mensagem': (
+                    f'Sincronização concluída! '
+                    f'{atualizadas} requisições atualizadas ({encerradas} encerradas).'
+                ),
+                'logs': resultado.get("logs", [])
+            })
+        else:
+            return Response({
+                'sucesso': False,
+                'mensagem': f'Erro na sincronização: {resultado.get("erro")}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    except Exception as e:
+        tb = traceback.format_exc()
         return Response({
             'sucesso': False,
-            'mensagem': f'Erro na sincronização: {resultado.get("erro")}'
+            'mensagem': f'Exceção não tratada: {str(e)}',
+            'traceback': tb
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @csrf_exempt

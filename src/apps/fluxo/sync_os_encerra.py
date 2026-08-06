@@ -98,17 +98,19 @@ class SyncOrdemServico:
                 houve_mudanca     = False
                 campos_atualizados = []
 
-                nova_m2 = float(metro2_exp)
-                nova_qt = int(pecas_exp)
+                nova_m2 = float(metro2_exp) if metro2_exp else 0.0
+                nova_qt = int(pecas_exp) if pecas_exp else 0
 
                 # ── Atualiza m2 produzido (parcial ou final) ───────────────────
-                if req.m2 != nova_m2:
+                m2_atual = float(req.m2) if req.m2 is not None else 0.0
+                if abs(m2_atual - nova_m2) > 0.001:
                     req.m2 = nova_m2
                     houve_mudanca = True
                     campos_atualizados.append(f"m2={nova_m2:.2f}")
 
                 # ── Atualiza peças expedidas ───────────────────────────────────
-                if req.qt != nova_qt:
+                qt_atual = int(req.qt) if req.qt is not None else 0
+                if qt_atual != nova_qt:
                     req.qt = nova_qt
                     houve_mudanca = True
                     campos_atualizados.append(f"qt={nova_qt}")
@@ -116,10 +118,12 @@ class SyncOrdemServico:
                 # ── Calcula rendimento: m2_saida / qt_mt_entrada * 100 ─────────
                 if nova_m2 > 0 and req.qt_mt and float(req.qt_mt) > 0:
                     rend_calc = round((nova_m2 / float(req.qt_mt)) * 100, 2)
-                    if req.rend != rend_calc:
+                    rend_atual = float(req.rend) if req.rend is not None else 0.0
+                    if abs(rend_atual - rend_calc) > 0.01:
                         req.rend = rend_calc
                         houve_mudanca = True
                         campos_atualizados.append(f"rend={rend_calc}%")
+
 
                 # ── Encerra SOMENTE quando OS finalizada (posição 7) ──────────
                 if os_finalizada:
@@ -128,6 +132,14 @@ class SyncOrdemServico:
                     campos_atualizados.append("encerrado=True")
 
                 if houve_mudanca:
+                    # Sanitiza fulao: SQLite aceita texto em campos inteiros,
+                    # mas o Django valida no save() e lança ValueError se não for número.
+                    if req.fulao is not None:
+                        try:
+                            req.fulao = int(req.fulao)
+                        except (ValueError, TypeError):
+                            req.fulao = None
+
                     obs_tipo = "ENCERRADO" if os_finalizada else "PARCIAL"
                     obs_msg = (
                         f"[{timezone.now().strftime('%d/%m/%Y %H:%M')}] "
