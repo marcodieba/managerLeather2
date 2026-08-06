@@ -98,6 +98,7 @@ class Requisicao(models.Model):
     custo_requisicao = models.DecimalField(('Custo Kg Real'), max_digits=10, decimal_places=2, blank=True, null=True)
     rendimento_custo = models.DecimalField(('Rendimento Custo'), max_digits=10, decimal_places=2, blank=True, null=True)
     pallet = models.CharField(('Pallet'), max_length=100, default=None, null=True, blank=True)
+    numero_os = models.CharField(('Número OS ERP'), max_length=100, null=True, blank=True)
     obs = models.TextField(verbose_name="Observação", blank=True, null=True)
 
     # Campos removidos: Classificação passou a ser dinâmica via Justificativa

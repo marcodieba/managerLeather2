@@ -298,7 +298,7 @@ class RequisicaoAdmin(admin.ModelAdmin):
                         ('lote', 'ficha'),
                         ('pallet', 'quantidade'),
                         ('qt_mt','m2'),
-                        ('encerrado'),
+                        ('numero_os', 'encerrado'),
                         ('obs'),
                     ]
                 }),
@@ -312,7 +312,7 @@ class RequisicaoAdmin(admin.ModelAdmin):
                 }),
             ]
     
-    list_display = ('cd_requisicao','data_criacao_formatada', 'listar_pedido', 'fulao', 'lote', 'pallet','quantidade','qt_mt','artigo', 'get_artigos')
+    list_display = ('cd_requisicao','data_criacao_formatada', 'listar_pedido', 'numero_os', 'fulao', 'lote', 'pallet','quantidade','qt_mt','artigo', 'get_artigos')
     list_select_related = True
     search_fields = ('cd_requisicao', 'lote', 'artigo', 'fulao')
     list_filter = [TemPedidoFilter]

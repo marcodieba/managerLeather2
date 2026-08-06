@@ -131,6 +131,12 @@ class SyncOrdemServico:
                     houve_mudanca = True
                     campos_atualizados.append("encerrado=True")
 
+                # ── Salva o Número da OS ───────────────────────────────────────
+                if req.numero_os != str(nr_os):
+                    req.numero_os = str(nr_os)
+                    houve_mudanca = True
+                    campos_atualizados.append(f"OS={nr_os}")
+
                 if houve_mudanca:
                     # Sanitiza fulao: SQLite aceita texto em campos inteiros,
                     # mas o Django valida no save() e lança ValueError se não for número.
