@@ -75,11 +75,11 @@ def get_item(dictionary, key):
 
 @register.filter
 def soma_qt_mt(requisicao_links):
-    return sum(
-        link.requisicao.qt_mt or 0
-        for link in requisicao_links
-        if link.requisicao.qt_mt is not None
-    )
+    total = 0
+    for link in requisicao_links:
+        req = link.requisicao
+        total += float(req.m2) if req.m2 and float(req.m2) > 0 else float(req.qt_mt or 0)
+    return total
 
 @register.filter
 def soma_quantidades(pedidos):

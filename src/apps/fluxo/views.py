@@ -53,7 +53,7 @@ def imprimir_lista_requisicoes_view(request):
             agrupado[lote]['artigos'].add(req.artigo)
             
         pecas = int(req.quantidade or req.qt or 0)
-        m2_val = Decimal(str(req.m2 if (req.encerrado and req.m2) else (req.qt_mt or 0)))
+        m2_val = Decimal(str(req.m2 if (req.m2 and float(req.m2) > 0) else (req.qt_mt or 0)))
         
         agrupado[lote]['quantidade'] += pecas
         agrupado[lote]['m2'] += m2_val
@@ -273,7 +273,7 @@ def imprimir_rendimento_view(request):
         soma_perc = (soma_m2 / req_m2_val) * 100 if req_m2_val > 0 else 0
         
         # Cálculo da Quebra Global (% Dif) = 100 - (Saída / Entrada * 100)
-        entrada_m2 = float(req.qt_mt or 0)
+        entrada_m2 = float(req.m2) if req.m2 and float(req.m2) > 0 else float(req.qt_mt or 0)
         saida_m2 = float(req.m2 or 0)
         
         if entrada_m2 > 0 and saida_m2 > 0:
@@ -430,7 +430,7 @@ def imprimir_maquina_view(request):
         req = f.requisicao
         is_encerrado = f.encerrado
         
-        req_m2 = float(req.m2 or req.qt_mt or 0) if req.encerrado else float(req.qt_mt or req.m2 or 0)
+        req_m2 = float(req.m2) if req.m2 and float(req.m2) > 0 else float(req.qt_mt or 0)
         req_pcs = int(req.qt or req.quantidade or 0) if req.encerrado else int(req.quantidade or req.qt or 0)
         
         pcs_fluxo = int(f.quantidade or 0) if f.quantidade else req_pcs
@@ -1234,11 +1234,11 @@ def imprimir_relatorio_geral_view(request):
         pecas = f.quantidade if f.quantidade else (req.quantidade if req.quantidade else 1)
         
         # Calcular mts (proporcional caso seja quantidade parcial)
-        mts = 0
-        if req.qt_mt and req.quantidade and req.quantidade > 0:
-            mts = float(req.qt_mt) * (pecas / req.quantidade)
-        elif req.qt_mt:
-            mts = float(req.qt_mt)
+        base_m2 = float(req.m2) if req.m2 and float(req.m2) > 0 else float(req.qt_mt or 0)
+        if base_m2 and req.quantidade and req.quantidade > 0:
+            mts = base_m2 * (pecas / req.quantidade)
+        else:
+            mts = base_m2
             
         if t1_start <= f.dt_saida < t1_end:
             turno = 'turno1'
@@ -1320,10 +1320,10 @@ def imprimir_maquina_view(request):
         wip_fluxos  = wip_fluxos.filter(requisicao__lote__icontains=filtro_lote)
     
     def calc_m2(req, pcs):
-        if not req.qt_mt: return 0.0
-        if req.quantidade and req.quantidade > 0:
-            return float(req.qt_mt) * (pcs / req.quantidade)
-        return float(req.qt_mt)
+        base_m2 = float(req.m2) if req.m2 and float(req.m2) > 0 else float(req.qt_mt or 0)
+        if base_m2 and req.quantidade and req.quantidade > 0:
+            return base_m2 * (pcs / req.quantidade)
+        return base_m2
 
     # Historico Lotes
     historico_lotes = []

@@ -729,7 +729,7 @@ def api_pedidos_dashboard_producao(request):
         
         for link in p.requisicao_links.all():
             req = link.requisicao
-            vol = float(req.qt_mt or req.m2 or 0)
+            vol = float(req.m2) if req.m2 and float(req.m2) > 0 else float(req.qt_mt or 0)
             
             if req.encerrado:
                 m2_concluido += vol

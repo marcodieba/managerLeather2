@@ -204,7 +204,12 @@ def custo_requisicao(*args):
         qt_final = float(req.qt or 0) if req else 0
 
         # Cálculos de Área Média
-        am_entrada = (float(req.qt_mt or 0) / float(req.quantidade)) if req and req.quantidade and req.quantidade > 0 else 0
+        if req:
+            base_m2 = float(req.m2) if req.m2 and float(req.m2) > 0 else float(req.qt_mt or 0)
+            am_entrada = (base_m2 / float(req.quantidade)) if req.quantidade and req.quantidade > 0 else 0
+        else:
+            am_entrada = 0
+            
         exp_am_saida = (m2_final / qt_final) if qt_final > 0 else 0
 
         custo_real_total = total_custo + float(sum(custo_adicional_lista))

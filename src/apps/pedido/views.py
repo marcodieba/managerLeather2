@@ -1390,8 +1390,9 @@ def imprimir_dashboard_executivo_view(request):
             }
             
         # Acumula Qtd e M²
+        vol_req = float(req_obj.m2) if req_obj.m2 and float(req_obj.m2) > 0 else float(req_obj.qt_mt or 0)
         detalhes_dict[key]['qtd'] += float(req_obj.quantidade or req_obj.qt or 0)
-        detalhes_dict[key]['m2'] += float(req_obj.qt_mt or req_obj.m2 or 0)
+        detalhes_dict[key]['m2'] += vol_req
         
         # Pega a data mais antiga
         if req_obj.data and (not detalhes_dict[key]['data_inicio'] or req_obj.data < detalhes_dict[key]['data_inicio']):
@@ -1405,7 +1406,7 @@ def imprimir_dashboard_executivo_view(request):
             maquina_nome = f_atual.processo.nome if f_atual.processo else "Fila"
             if maquina_nome not in detalhes_dict[key]['maquinas']:
                 detalhes_dict[key]['maquinas'][maquina_nome] = 0
-            detalhes_dict[key]['maquinas'][maquina_nome] += float(req_obj.qt_mt or req_obj.m2 or 0)
+            detalhes_dict[key]['maquinas'][maquina_nome] += vol_req
             
     # Formata a lista e calcula a previsão de fim
     detalhes_lista = []
