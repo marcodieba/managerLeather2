@@ -89,12 +89,25 @@ class SyncOrdemServico:
 
             requisicoes = Requisicao.objects.filter(**filtros).order_by('dt_requisicao')
 
+            from datetime import timedelta
+            
             pecas_exp    = os.get('Pecas_Exp') or 0
             metro2_exp   = os.get('metro2_exp') or 0.0
             nr_os        = os.get('Nr_OS') or os.get('Codigo')
             os_finalizada = str(os.get('Cd_Sea_Posicao_OS', '')) == '7'
+            dt_os        = os.get('Dt_Hr_Digitacao') or os.get('Dt_Inicio_OS')
 
             for req in requisicoes:
+                # ── Validação 1: Não sobrescrever se a Requisição já tiver outra OS vinculada
+                if req.numero_os and req.numero_os != str(nr_os):
+                    continue
+                
+                # ── Validação 2: Prevenir que OS antiga feche Requisição nova de lote reaproveitado
+                # A OS deve ter sido digitada no máximo 15 dias ANTES da requisição.
+                if dt_os and req.dt_requisicao:
+                    if dt_os.date() < req.dt_requisicao.date() - timedelta(days=15):
+                        continue
+
                 houve_mudanca     = False
                 campos_atualizados = []
 

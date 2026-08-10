@@ -761,11 +761,12 @@ def ler_qrcode_movimentacao(request):
     if fluxos_abertos:
         processo_esperado = fluxos_abertos[0].processo
         
-        # Ignora a checagem se estiver na fila genérica
+        # Processos padrões que não seguem roteiro de artigo (pré-roteiro)
+        PROCESSOS_PADRAO = ("AGUARDANDO", "RECURTIMENTO", "DESCARREGAR")
         is_fila_generica = False
         if processo_esperado and processo_esperado.nome:
             nome_proc = processo_esperado.nome.upper()
-            if "AGUARDANDO" in nome_proc or "RECURTIMENTO" in nome_proc or "DESCARREGAMENTO" in nome_proc:
+            if any(p in nome_proc for p in PROCESSOS_PADRAO):
                 is_fila_generica = True
         
         if processo_esperado and processo_esperado.id != processo_atual.id and not is_fila_generica:
@@ -848,8 +849,8 @@ def ler_qrcode_movimentacao(request):
                 proc_nl, _ = Processo.objects.get_or_create(nome="🔄 SEPARADO P/ NOVO LOTE")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
             else:
-                ultimo_fechado = requisicao.fluxos.filter(encerrado=True).exclude(id=fluxo.id).order_by('-dt_saida', '-id').first()
-                processo_destino = ultimo_fechado.processo if ultimo_fechado else fluxo.processo
+                # O restante do lote deve continuar na fila da máquina atual, aguardando ser processado.
+                processo_destino = processo_atual
                 
                 FluxoRequisicao.objects.create(
                     requisicao=requisicao,
@@ -860,7 +861,7 @@ def ler_qrcode_movimentacao(request):
                     # Sem operador: fila aguardando
                 )
                 
-                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote dividido: {qtd_que_ficou} peças retornaram como pendência para a máquina {processo_destino.nome if processo_destino else 'Inicial'}."
+                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote dividido: {qtd_que_ficou} peças continuam como pendência aguardando processamento na máquina {processo_destino.nome}."
                 requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
                 requisicao.save()
             qtd_a_consumir = 0
@@ -893,8 +894,24 @@ def ler_qrcode_movimentacao(request):
             else:
                 proximo_processo = "FIM"
                 
-    # --- NOVA REGRA: Interceptar Classificação e Medição ---
+    # --- REGRA: Recurtimento e Descarregar são processos padrão (pré-roteiro) ---
+    # Após qualquer um deles, o sistema avança direto para o 1º processo do roteiro do artigo
     nome_proc_atual = processo_atual.nome.upper()
+    
+    if "RECURTIMENTO" in nome_proc_atual or "DESCARREGAR" in nome_proc_atual:
+        if requisicao.artigo_padrao:
+            # Pega o primeiro processo do roteiro, excluindo os processos padrão
+            primeiro_roteiro = RoteiroArtigo.objects.filter(
+                artigo=requisicao.artigo_padrao
+            ).order_by('ordem').exclude(
+                processo__nome__icontains='DESCARREGAR'
+            ).exclude(
+                processo__nome__icontains='RECURTIMENTO'
+            ).first()
+            if primeiro_roteiro:
+                proximo_processo = primeiro_roteiro.processo
+
+    # --- REGRAS DE FIM DE FLUXO ---
     if "CLASSIFICA" in nome_proc_atual:
         proximo_processo, _ = Processo.objects.get_or_create(nome="⏳ Encerrado Aguardando Medir")
     elif "MEDI" in nome_proc_atual or "PCP" in nome_proc_atual:
