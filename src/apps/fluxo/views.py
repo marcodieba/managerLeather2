@@ -769,20 +769,21 @@ def ler_qrcode_movimentacao(request):
                 is_fila_generica = True
         
         if processo_esperado and processo_esperado.id != processo_atual.id and not is_fila_generica:
-            if not forcar_roteiro:
-                precisa_autorizacao_roteiro = True
-                erros_pendentes['esperado'] = processo_esperado.nome
-                erros_pendentes['erro_roteiro'] = f'O processo correto aguardado é {processo_esperado.nome}. Deseja forçar a entrada em {processo_atual.nome}?'
-            else:
-                from django.contrib.auth import authenticate
-                user = authenticate(username=username, password=password)
-                if user is None or not (user.is_staff or user.is_superuser):
-                    return Response({'sucesso': False, 'erro': 'Credenciais de supervisor inválidas para forçar roteiro.'}, status=401)
-                
-                # Registra a quebra de roteiro
-                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Alteração de roteiro autorizada pelo supervisor {user.username}. O processo esperado era {processo_esperado.nome}, mas foi forçado para {processo_atual.nome}. Justificativa: {justificativa_roteiro}"
-                requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
-                requisicao.save()
+            if processo_esperado.nome.strip().upper() != processo_atual.nome.strip().upper():
+                if not forcar_roteiro:
+                    precisa_autorizacao_roteiro = True
+                    erros_pendentes['esperado'] = processo_esperado.nome
+                    erros_pendentes['erro_roteiro'] = f'O processo correto aguardado é {processo_esperado.nome}. Deseja forçar a entrada em {processo_atual.nome}?'
+                else:
+                    from django.contrib.auth import authenticate
+                    user = authenticate(username=username, password=password)
+                    if user is None or not (user.is_staff or user.is_superuser):
+                        return Response({'sucesso': False, 'erro': 'Credenciais de supervisor inválidas para forçar roteiro.'}, status=401)
+                    
+                    # Registra a quebra de roteiro
+                    nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Alteração de roteiro autorizada pelo supervisor {user.username}. O processo esperado era {processo_esperado.nome}, mas foi forçado para {processo_atual.nome}. Justificativa: {justificativa_roteiro}"
+                    requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+                    requisicao.save()
 
     # 2. VALIDAÇÃO QUANTIDADE
     total_disponivel = sum((f.quantidade or 0) for f in fluxos_abertos)
