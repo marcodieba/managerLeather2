@@ -7,6 +7,7 @@ from . import api_views
 
 router = DefaultRouter()
 router.register(r'pedidos', views.PedidoViewSet)
+router.register(r'artigos', views.ArtigoViewSet)
 router.register(r'processos', views.ProcessoViewSet)
 router.register(r'requisicoes', views.RequisicaoViewSet)
 router.register(r'fluxorequisicoes', views.FluxoRequisicaoViewSet)

@@ -6,8 +6,8 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
-from .models import Processo, Requisicao, FluxoRequisicao, Operador, RoteiroArtigo, Justificativa, RequisicaoJustificativa
-from .serializers import PedidoSerializer, ProcessoSerializer, RequisicaoSerializer, FluxoRequisicaoSerializer, OperadorSerializer, JustificativaSerializer
+from .models import Processo, Requisicao, FluxoRequisicao, Operador, RoteiroArtigo, Justificativa, RequisicaoJustificativa, Artigo
+from .serializers import PedidoSerializer, ProcessoSerializer, RequisicaoSerializer, FluxoRequisicaoSerializer, OperadorSerializer, JustificativaSerializer, ArtigoSerializer
 from src.apps.pedido.models import Pedido
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
@@ -687,6 +687,11 @@ class OperadorViewSet(viewsets.ModelViewSet):
 class PedidoViewSet(viewsets.ModelViewSet):
     queryset = Pedido.objects.all()
     serializer_class = PedidoSerializer
+
+class ArtigoViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Artigo.objects.all().order_by('nome')
+    serializer_class = ArtigoSerializer
+    pagination_class = None
 
 class ProcessoViewSet(viewsets.ModelViewSet):
     queryset = Processo.objects.all()

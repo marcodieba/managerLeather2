@@ -185,6 +185,25 @@ def requisicao_sea(modeladmin, request, queryset):
 # pyrefly: ignore [missing-import]
 from django.contrib.admin import SimpleListFilter
 
+class EncerradoFilter(SimpleListFilter):
+    title = 'Situação (Encerrado)'
+    parameter_name = 'situacao'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('abertas', 'Abertas (Padrão)'),
+            ('encerradas', 'Encerradas'),
+            ('todas', 'Todas'),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == 'encerradas':
+            return queryset.filter(encerrado=True)
+        elif self.value() == 'todas':
+            return queryset
+        else:
+            return queryset.filter(encerrado=False)
+
 class TemPedidoFilter(SimpleListFilter):
     title = 'Possui Pedido'
     parameter_name = 'tem_pedido'
@@ -315,7 +334,7 @@ class RequisicaoAdmin(admin.ModelAdmin):
     list_display = ('cd_requisicao','data_criacao_formatada', 'listar_pedido', 'numero_os', 'fulao', 'lote', 'pallet','quantidade','qt_mt','artigo', 'get_artigos')
     list_select_related = True
     search_fields = ('cd_requisicao', 'lote', 'artigo', 'fulao')
-    list_filter = [TemPedidoFilter]
+    list_filter = [EncerradoFilter, TemPedidoFilter]
     ordering = ('-dt_requisicao',)
     actions = [update_requisicao_action, requisicao_sea, imprimir_rendimento, imprimir_fluxograma, imprimir_custo, imprimir_fluxo_detalhado]
 
@@ -335,7 +354,7 @@ class RequisicaoAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         SelectRequisicao()
-        return qs.filter(encerrado=False)
+        return qs
 
     # AQUI CORRIGIMOS A COLUNA NA LISTA PARA MOSTRAR O ARTIGO VINCULADO
     def get_artigos(self, obj):

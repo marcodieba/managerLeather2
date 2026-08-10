@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Processo, Requisicao, FluxoRequisicao, Operador, Justificativa, RequisicaoJustificativa, CustoTintaRegistro, CustoFulaoRegistro, FechamentoDiario
+from .models import Processo, Requisicao, FluxoRequisicao, Operador, Justificativa, RequisicaoJustificativa, CustoTintaRegistro, CustoFulaoRegistro, FechamentoDiario, Artigo
 from datetime import datetime
 from src.apps.pedido.models import Pedido
 
@@ -67,6 +67,11 @@ class FluxoRequisicaoSerializer(serializers.ModelSerializer):
         model = FluxoRequisicao
         fields = ['id', 'processo', 'processo_nome', 'quantidade', 'encerrado', 'dt_processo', 'dt_saida', 'operador_nome']
 
+class ArtigoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Artigo
+        fields = ['id', 'nome']
+
 class RequisicaoSerializer(serializers.ModelSerializer):
     fluxos = FluxoRequisicaoSerializer(many=True, read_only=True)
     justificativas_registadas = RequisicaoJustificativaSerializer(many=True, read_only=True)
@@ -80,7 +85,7 @@ class RequisicaoSerializer(serializers.ModelSerializer):
             'id', 'data', 'cd_requisicao', 'artigo', 'nr_pedido', 'quantidade', 'lote', 
             'dt_requisicao', 'modificado', 'encerrado', 'fluxos', 'setor', 'qt_mt', 'm2', 'qt',
             'am', 'exp_qt', 'exp_m2', 'exp_am', 'rend', 'kg_blue', 'seco', 'justificativas_registadas',
-            'custo_requisicao', 'risco_atraso', 'artigo_generico',
+            'custo_requisicao', 'risco_atraso', 'artigo_generico', 'artigo_padrao',
             'cor', 'espessura', 'classe', 'fulao'
         ]
 
