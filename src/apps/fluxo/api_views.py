@@ -929,3 +929,74 @@ def api_fechamento_diario_importar(request):
 
 
 
+from django.db import transaction
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Refilo, Requisicao, Processo
+
+@api_view(['POST'])
+def batch_refilos(request):
+    data = request.data.get('refilos', [])
+    if not isinstance(data, list):
+        return Response({'erro': 'O formato esperado é uma lista de refilos na chave "refilos".'}, status=400)
+    
+    sucessos = 0
+    erros = []
+    
+    try:
+        with transaction.atomic():
+            for i, item in enumerate(data):
+                cd_req = item.get('cd_requisicao')
+                proc_id = item.get('processo_id')
+                qt = item.get('qt_refila')
+                
+                if not cd_req or not proc_id or qt is None:
+                    erros.append(f'Linha {i+1}: Campos obrigatórios ausentes.')
+                    continue
+                    
+                try:
+                    qt_float = float(qt)
+                except ValueError:
+                    erros.append(f'Linha {i+1}: Quantidade inválida.')
+                    continue
+                    
+                try:
+                    req = Requisicao.objects.get(cd_requisicao=cd_req)
+                except Requisicao.DoesNotExist:
+                    erros.append(f'Linha {i+1}: Requisição {cd_req} não encontrada.')
+                    continue
+                    
+                try:
+                    proc = Processo.objects.get(id=proc_id)
+                except Processo.DoesNotExist:
+                    erros.append(f'Linha {i+1}: Processo ID {proc_id} não encontrado.')
+                    continue
+                    
+                # Verifica se já existe, para SOMAR
+                refilo, created = Refilo.objects.get_or_create(
+                    requisicao=req,
+                    processo=proc,
+                    defaults={'qt_refila': qt_float}
+                )
+                
+                if not created:
+                    refilo.qt_refila = (refilo.qt_refila or 0.0) + qt_float
+                    refilo.save()
+                    
+                sucessos += 1
+                
+    except Exception as e:
+        return Response({'erro': f'Erro interno: {str(e)}'}, status=500)
+            
+    if erros and sucessos == 0:
+        return Response({
+            'mensagem': f'Nenhum refilo foi salvo devido a {len(erros)} erro(s).',
+            'detalhes': erros,
+            'sucesso': False
+        }, status=400)
+        
+    return Response({
+        'mensagem': f'{sucessos} refilos registrados com sucesso!' + (f' ({len(erros)} erros ignorados)' if erros else ''), 
+        'detalhes': erros,
+        'sucesso': True
+    })
