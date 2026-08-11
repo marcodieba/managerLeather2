@@ -212,6 +212,6 @@ CELERY_BEAT_SCHEDULE = {
     },
     'sincronizar-requisicoes-sql-server': {
         'task': 'src.apps.fluxo.tasks.sync_requisicoes_task',
-        'schedule': crontab(minute='*/1'),
+        'schedule': crontab(minute='0', hour='8,11,14,17,20'), # Executa 5x ao dia
     },
 }

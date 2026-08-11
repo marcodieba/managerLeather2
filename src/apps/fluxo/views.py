@@ -762,34 +762,100 @@ def ler_qrcode_movimentacao(request):
     precisa_confirmacao_qtd = False
     erros_pendentes = {}
     
-    # 1. VALIDAÇÃO ROTEIRO
-    if fluxos_abertos:
+    # 1. VALIDAÇÃO ROTEIRO POR RoteiroArtigo (Teórico)
+    from .models import RoteiroArtigo
+
+    # Processos que fazem parte da fase preparatória (antes do roteiro do artigo)
+    PROCESSOS_PRE_ROTEIRO = ("AGUARDANDO", "RECURTIMENTO", "DESCARREGAR")
+
+    def _is_pre_roteiro(nome_processo):
+        """Retorna True se o processo é pré-roteiro (genérico/preparatório)."""
+        if not nome_processo:
+            return False
+        nome_upper = nome_processo.upper()
+        return any(p in nome_upper for p in PROCESSOS_PRE_ROTEIRO)
+
+    def _get_primeiro_roteiro(artigo_padrao):
+        """Retorna o primeiro Processo do roteiro do artigo, excluindo pré-roteiro."""
+        if not artigo_padrao:
+            return None
+        r = RoteiroArtigo.objects.filter(
+            artigo=artigo_padrao
+        ).order_by('ordem').exclude(
+            processo__nome__icontains='DESCARREGAR'
+        ).exclude(
+            processo__nome__icontains='RECURTIMENTO'
+        ).first()
+        return r.processo if r else None
+
+    processo_esperado = None
+    ultimo_fluxo_encerrado = requisicao.fluxos.filter(encerrado=True).order_by('-dt_saida', '-id').first()
+
+    if requisicao.artigo_padrao:
+        if ultimo_fluxo_encerrado and ultimo_fluxo_encerrado.processo:
+            nome_ultimo = ultimo_fluxo_encerrado.processo.nome.upper() if ultimo_fluxo_encerrado.processo.nome else ""
+
+            # Saiu de pré-roteiro → esperado é o 1º passo do roteiro teórico
+            if any(p in nome_ultimo for p in PROCESSOS_PRE_ROTEIRO):
+                processo_esperado = _get_primeiro_roteiro(requisicao.artigo_padrao)
+            else:
+                # Já está no meio do roteiro → próximo passo
+                roteiro_anterior = RoteiroArtigo.objects.filter(
+                    artigo=requisicao.artigo_padrao,
+                    processo=ultimo_fluxo_encerrado.processo
+                ).first()
+                if roteiro_anterior and roteiro_anterior.ordem is not None:
+                    proximo_roteiro = RoteiroArtigo.objects.filter(
+                        artigo=requisicao.artigo_padrao,
+                        ordem__gt=roteiro_anterior.ordem
+                    ).order_by('ordem').first()
+                    if proximo_roteiro:
+                        processo_esperado = proximo_roteiro.processo
+        else:
+            # ══════════════════════════════════════════════════════════════════
+            # PRIMEIRA MOVIMENTAÇÃO — nenhum fluxo encerrado ainda.
+            # Se o operador NÃO está num processo pré-roteiro (Recurtimento,
+            # Descarregar), deve obrigatoriamente ir para o 1º do roteiro.
+            # ══════════════════════════════════════════════════════════════════
+            if not _is_pre_roteiro(processo_atual.nome):
+                processo_esperado = _get_primeiro_roteiro(requisicao.artigo_padrao)
+
+    # Fallback: artigo sem roteiro cadastrado → usa a fila atual (comportamento antigo)
+    if not processo_esperado and fluxos_abertos:
         processo_esperado = fluxos_abertos[0].processo
-        
-        # Processos padrões que não seguem roteiro de artigo (pré-roteiro)
-        PROCESSOS_PADRAO = ("AGUARDANDO", "RECURTIMENTO", "DESCARREGAR")
-        is_fila_generica = False
-        if processo_esperado and processo_esperado.nome:
-            nome_proc = processo_esperado.nome.upper()
-            if any(p in nome_proc for p in PROCESSOS_PADRAO):
-                is_fila_generica = True
-        
-        if processo_esperado and processo_esperado.id != processo_atual.id and not is_fila_generica:
-            if processo_esperado.nome.strip().upper() != processo_atual.nome.strip().upper():
-                if not forcar_roteiro:
-                    precisa_autorizacao_roteiro = True
-                    erros_pendentes['esperado'] = processo_esperado.nome
-                    erros_pendentes['erro_roteiro'] = f'O processo correto aguardado é {processo_esperado.nome}. Deseja forçar a entrada em {processo_atual.nome}?'
-                else:
-                    from django.contrib.auth import authenticate
-                    user = authenticate(username=username, password=password)
-                    if user is None or not (user.is_staff or user.is_superuser):
-                        return Response({'sucesso': False, 'erro': 'Credenciais de supervisor inválidas para forçar roteiro.'}, status=401)
-                    
-                    # Registra a quebra de roteiro
-                    nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Alteração de roteiro autorizada pelo supervisor {user.username}. O processo esperado era {processo_esperado.nome}, mas foi forçado para {processo_atual.nome}. Justificativa: {justificativa_roteiro}"
-                    requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
-                    requisicao.save()
+
+    # ── VALIDAÇÃO DA TRAVA ─────────────────────────────────────────────────────
+    if processo_esperado and processo_esperado.id != processo_atual.id:
+        # Regra 1: Se o operador está num processo pré-roteiro, sempre permite
+        #          (ex: Recurtimento → Descarregar é uma transição válida)
+        if _is_pre_roteiro(processo_atual.nome):
+            pass  # OK — transição pré-roteiro
+
+        # Regra 2: Se o esperado é genérico (fallback sem roteiro), não bloqueia
+        #          (artigo sem RoteiroArtigo cadastrado — sem dados para validar)
+        elif _is_pre_roteiro(processo_esperado.nome):
+            pass  # OK — sem roteiro cadastrado, não trava a fábrica
+
+        # Regra 3: IDs diferentes mas mesmo nome (possível duplicata de cadastro)
+        elif processo_esperado.nome.strip().upper() == processo_atual.nome.strip().upper():
+            pass  # OK — mesmo processo, cadastro duplicado
+
+        # ══ BLOQUEIO! O processo atual não é o esperado pelo roteiro ══
+        else:
+            if not forcar_roteiro:
+                precisa_autorizacao_roteiro = True
+                erros_pendentes['esperado'] = processo_esperado.nome
+                erros_pendentes['erro_roteiro'] = f'O roteiro teórico exige o processo {processo_esperado.nome}. Deseja forçar a entrada em {processo_atual.nome}?'
+            else:
+                from django.contrib.auth import authenticate
+                user = authenticate(username=username, password=password)
+                if user is None or not (user.is_staff or user.is_superuser):
+                    return Response({'sucesso': False, 'erro': 'Credenciais de supervisor inválidas para forçar roteiro.'}, status=401)
+
+                # Registra a quebra de roteiro
+                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Alteração de roteiro autorizada pelo supervisor {user.username}. O processo esperado era {processo_esperado.nome}, mas foi forçado para {processo_atual.nome}. Justificativa: {justificativa_roteiro}"
+                requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+                requisicao.save()
 
     # 2. VALIDAÇÃO QUANTIDADE
     total_disponivel = sum((f.quantidade or 0) for f in fluxos_abertos)
@@ -799,13 +865,23 @@ def ler_qrcode_movimentacao(request):
         qtd_ja_entrou = sum((f.quantidade or 0) for f in requisicao.fluxos.filter(processo_id=processo_id))
         total_disponivel = total_requisicao - qtd_ja_entrou
         
-    if qtd_recebida > total_disponivel + 12 and not forcar_ajuste:
-        diferenca = qtd_recebida - total_disponivel
-        precisa_confirmacao_qtd = True
-        erros_pendentes['diferenca'] = diferenca
-        erros_pendentes['qtd_anterior'] = total_disponivel
-        erros_pendentes['total_requisicao'] = float(requisicao.quantidade or requisicao.qt or 0)
-        erros_pendentes['erro_qtd'] = f'A quantidade recebida excede o saldo da requisição em {int(diferenca)} peças.'
+    if qtd_recebida > total_disponivel + 12:
+        if not forcar_ajuste:
+            diferenca = qtd_recebida - total_disponivel
+            precisa_confirmacao_qtd = True
+            erros_pendentes['diferenca'] = diferenca
+            erros_pendentes['qtd_anterior'] = total_disponivel
+            erros_pendentes['total_requisicao'] = float(requisicao.quantidade or requisicao.qt or 0)
+            erros_pendentes['erro_qtd'] = f'A quantidade recebida excede o saldo da requisição em {int(diferenca)} peças.'
+        else:
+            from django.contrib.auth import authenticate
+            user = authenticate(username=username, password=password)
+            if user is None or not (user.is_staff or user.is_superuser):
+                return Response({'sucesso': False, 'erro': 'Credenciais de supervisor inválidas para forçar ajuste de quantidade.'}, status=401)
+            
+            nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste de quantidade excedente autorizado pelo supervisor {user.username}. Quantidade recebida: {qtd_recebida}, Saldo esperado: {total_disponivel}. Justificativa: {justificativa_roteiro}"
+            requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
+            requisicao.save()
 
     # SE HOUVER QUALQUER PENDÊNCIA, RETORNA TODAS JUNTAS
     if precisa_autorizacao_roteiro or precisa_confirmacao_qtd:
@@ -823,6 +899,8 @@ def ler_qrcode_movimentacao(request):
     for fluxo in fluxos_abertos:
         if qtd_a_consumir <= 0:
             break
+            
+        processo_anterior = fluxo.processo
             
         if qtd_a_consumir >= fluxo.quantidade:
             qtd_a_consumir -= fluxo.quantidade
@@ -854,8 +932,8 @@ def ler_qrcode_movimentacao(request):
                 proc_nl, _ = Processo.objects.get_or_create(nome="🔄 SEPARADO P/ NOVO LOTE")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
             else:
-                # O restante do lote deve continuar na fila da máquina atual, aguardando ser processado.
-                processo_destino = processo_atual
+                # O restante do lote deve continuar na fila da máquina anterior, aguardando ser processado.
+                processo_destino = processo_anterior
                 
                 FluxoRequisicao.objects.create(
                     requisicao=requisicao,
@@ -866,7 +944,8 @@ def ler_qrcode_movimentacao(request):
                     # Sem operador: fila aguardando
                 )
                 
-                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote dividido: {qtd_que_ficou} peças continuam como pendência aguardando processamento na máquina {processo_destino.nome}."
+                nome_dest = processo_destino.nome if processo_destino else "N/A"
+                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote dividido: {qtd_que_ficou} peças continuam como pendência aguardando processamento na máquina {nome_dest}."
                 requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
                 requisicao.save()
             qtd_a_consumir = 0
