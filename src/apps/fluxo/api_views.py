@@ -1000,3 +1000,115 @@ def batch_refilos(request):
         'detalhes': erros,
         'sucesso': True
     })
+
+
+# ============================================================
+# MÓDULO: Busca de Requisições com Refilo > 0
+# ============================================================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_requisicoes_com_refilo(request):
+    """
+    GET /api/v1/requisicoes-com-refilo/
+
+    Retorna requisições que possuem soma de refilos > 0, com detalhamento por processo.
+
+    Parâmetros opcionais:
+        data_inicio  (YYYY-MM-DD)  — filtra por Requisicao.dt_requisicao >= data_inicio
+        data_fim     (YYYY-MM-DD)  — filtra por Requisicao.dt_requisicao <= data_fim (23:59:59)
+
+    Nota: o model Refilo não possui campo de data próprio.
+    O filtro de período é aplicado via Requisicao.dt_requisicao,
+    seguindo o mesmo padrão já adotado em api_custo_fulao_preview_requisicoes.
+    """
+    from .models import Refilo
+    from collections import defaultdict
+
+    data_inicio_str = request.query_params.get('data_inicio', '').strip()
+    data_fim_str    = request.query_params.get('data_fim', '').strip()
+
+    # --- Validação de datas ---
+    data_inicio = None
+    data_fim    = None
+
+    if data_inicio_str:
+        try:
+            data_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'sucesso': False, 'erro': 'data_inicio inválida. Use o formato YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    if data_fim_str:
+        try:
+            data_fim = datetime.strptime(data_fim_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'sucesso': False, 'erro': 'data_fim inválida. Use o formato YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    if data_inicio and data_fim and data_inicio > data_fim:
+        return Response(
+            {'sucesso': False, 'erro': 'data_inicio não pode ser posterior a data_fim.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # --- Query principal: evitar N+1 ---
+    # 1. Filtra Refilos com quantidade > 0 (usando select_related para trazer req e processo de uma vez)
+    qs = Refilo.objects.select_related('requisicao', 'processo').filter(
+        qt_refila__gt=0
+    )
+
+    # 2. Aplica filtro de período via dt_requisicao da Requisicao
+    if data_inicio:
+        qs = qs.filter(requisicao__dt_requisicao__date__gte=data_inicio)
+    if data_fim:
+        qs = qs.filter(requisicao__dt_requisicao__date__lte=data_fim)
+
+    # 3. Agrupa em memória por requisicao_id (evita múltiplas queries por req)
+    agrupado = defaultdict(lambda: {
+        'requisicao_id': None,
+        'cd_requisicao': None,
+        'artigo': None,
+        'dt_requisicao': None,
+        'refilo_total': 0.0,
+        'processos': []
+    })
+
+    for refilo in qs:
+        req   = refilo.requisicao
+        rid   = req.id
+        grupo = agrupado[rid]
+
+        if grupo['requisicao_id'] is None:
+            grupo['requisicao_id'] = req.id
+            grupo['cd_requisicao'] = req.cd_requisicao
+            grupo['artigo']        = req.artigo or '—'
+            grupo['dt_requisicao'] = (
+                req.dt_requisicao.strftime('%Y-%m-%d') if req.dt_requisicao else None
+            )
+
+        qt = float(refilo.qt_refila or 0)
+        grupo['refilo_total'] = round(grupo['refilo_total'] + qt, 2)
+
+        grupo['processos'].append({
+            'processo_id': refilo.processo.id   if refilo.processo else None,
+            'processo':    refilo.processo.nome if refilo.processo else 'Sem processo',
+            'qt_refila':   round(qt, 2),
+        })
+
+    # 4. Ordena por data mais recente primeiro
+    resultados = sorted(
+        agrupado.values(),
+        key=lambda x: x['dt_requisicao'] or '',
+        reverse=True
+    )
+
+    return Response({
+        'sucesso': True,
+        'total': len(resultados),
+        'resultados': resultados,
+    })

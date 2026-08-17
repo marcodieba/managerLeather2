@@ -55,6 +55,7 @@ urlpatterns = [
     path('v1/sync-ordens-servico/', api_views.api_sync_ordens_servico, name='api_v1_sync_ordens_servico'),
     path('v1/sync-selectrequisicao/', api_views.api_sync_selectrequisicao, name='api_v1_sync_selectrequisicao'),
     path('v1/batch-refilos/', api_views.batch_refilos, name='api_v1_batch_refilos'),
+    path('v1/requisicoes-com-refilo/', api_views.api_requisicoes_com_refilo, name='api_v1_requisicoes_com_refilo'),
 
     # ── Módulo 1: Custo Acabamento Tinta ──────────────────────
     path('v1/custo-tinta/', api_views.api_custo_tinta, name='api_v1_custo_tinta'),
