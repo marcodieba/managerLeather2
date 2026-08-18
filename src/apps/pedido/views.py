@@ -1244,22 +1244,93 @@ def imprimir_pedido_interno_view(request):
 
     from collections import OrderedDict
     from datetime import datetime, timedelta
+    from django.utils.dateparse import parse_datetime, parse_date
+    from django.utils import timezone
+    
+    agora = timezone.now()
+    MESES_DO_ANO = {
+        1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+        5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+        9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+    }
+    
+    pedidos_agrupados = OrderedDict()
     
     for p in pedidos:
         q = float(p.get("quantidade") or 0)
         qe = float(p.get("quantidade_entregue") or 0)
         p["saldo"] = q - qe
         
+        dt_prog = None
         if p.get("dt_embarque"):
-            p["dt_embarque_obj"] = datetime.fromisoformat(p["dt_embarque"])
+            dt_emb = parse_datetime(p["dt_embarque"]) or parse_date(p["dt_embarque"])
+            if dt_emb:
+                p["dt_embarque"] = dt_emb
         if p.get("dt_programada"):
-            p["dt_programada_obj"] = datetime.fromisoformat(p["dt_programada"])
+            dt_prog = parse_datetime(p["dt_programada"]) or parse_date(p["dt_programada"])
+            if dt_prog:
+                if type(dt_prog) is not datetime:
+                    dt_prog = datetime.combine(dt_prog, datetime.min.time())
+                
+                # Sincroniza o timezone de dt_prog com agora
+                if timezone.is_aware(agora) and timezone.is_naive(dt_prog):
+                    dt_prog = timezone.make_aware(dt_prog)
+                elif timezone.is_naive(agora) and timezone.is_aware(dt_prog):
+                    dt_prog = timezone.make_naive(dt_prog)
+                    
+                p["dt_programada"] = dt_prog
+            
+        if dt_prog:
+            delta = dt_prog - agora
+            if delta.total_seconds() < 0:
+                atraso = abs(delta)
+                if atraso.days >= 1:
+                    p["status_prazo_texto"] = f"Atrasado há {atraso.days} dia(s)"
+                else:
+                    horas = int(atraso.total_seconds() // 3600)
+                    p["status_prazo_texto"] = f"Atrasado há {horas} hora(s)"
+                p["status_prazo_classe"] = "atrasado"
+            elif dt_prog.date() == agora.date():
+                p["status_prazo_texto"] = "Vence hoje"
+                p["status_prazo_classe"] = "hoje"
+            else:
+                dias_restantes = delta.days
+                p["status_prazo_texto"] = f"Faltam {dias_restantes} dia(s)"
+                p["status_prazo_classe"] = "adiantado"
+                
+            mes_chave = f"{dt_prog.year}-{dt_prog.month:02d}"
+            mes_display = f"{MESES_DO_ANO.get(dt_prog.month, '')} - {dt_prog.year}"
+        else:
+            mes_chave = "0000-00"
+            mes_display = "Sem Data"
+            p["status_prazo_texto"] = ""
+            p["status_prazo_classe"] = ""
 
-    hoje = timezone.now()
-    
+        if mes_chave not in pedidos_agrupados:
+            pedidos_agrupados[mes_chave] = {
+                "items": [],
+                "subtotais": {},
+                "mes_display": mes_display,
+                "clientes": OrderedDict(),
+            }
+            
+        pedidos_agrupados[mes_chave]["items"].append(p)
+        nome_cliente = str(p.get("cliente", ""))
+        unidade = p.get("unidade_medida") or "N/D"
+        
+        pedidos_agrupados[mes_chave]["clientes"].setdefault(nome_cliente, {})
+        pedidos_agrupados[mes_chave]["clientes"][nome_cliente].setdefault(unidade, 0)
+        pedidos_agrupados[mes_chave]["clientes"][nome_cliente][unidade] += q
+        
+        pedidos_agrupados[mes_chave]["subtotais"].setdefault(unidade, 0)
+        pedidos_agrupados[mes_chave]["subtotais"][unidade] += q
+
+    for grupo in pedidos_agrupados.values():
+        grupo["clientes"] = OrderedDict(sorted(grupo["clientes"].items(), key=lambda x: x[0].lower()))
+        
     context = {
-        'pedidos': pedidos,
-        'hoje': hoje,
+        'pedidos_agrupados': pedidos_agrupados,
+        'data_atual': agora,
     }
     return render(request, 'pedido_interno_print.html', context)
 

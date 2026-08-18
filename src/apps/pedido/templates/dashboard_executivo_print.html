@@ -194,7 +194,11 @@
                 <td>
                     {% if item.data_inicio %}{{ item.data_inicio|date:"d/m/Y" }}{% else %}-{% endif %}
                 </td>
-                <td style="color: {% if item.data_prevista and item.data_prevista < hoje %}#ef4444{% else %}#0f172a{% endif %}; font-weight: bold;">
+                {% if item.data_prevista and item.data_prevista < hoje %}
+                <td style="color: #ef4444; font-weight: bold;">
+                {% else %}
+                <td style="color: #0f172a; font-weight: bold;">
+                {% endif %}
                     {% if item.data_prevista %}{{ item.data_prevista|date:"d/m/Y H:i" }}{% else %}-{% endif %}
                 </td>
                 <td>{{ item.qtd|floatformat:0 }}</td>

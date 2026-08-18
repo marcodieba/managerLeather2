@@ -14,20 +14,17 @@ class SelectPedidos(object):
 
     def _registros_sao_diferentes(self, remoto, local):
         if str(remoto[1] or '').strip() != str(local[1] or '').strip(): return True  # cliente
-        if str(remoto[3] or '').strip() != str(local[3] or '').strip(): return True  # nr_contract
-        if str(remoto[4] or '').strip() != str(local[4] or '').strip(): return True  # selecao
-        if str(remoto[5] or '').strip() != str(local[5] or '').strip(): return True  # artigo
-        if str(remoto[7] or '').strip() != str(local[7] or '').strip(): return True  # produto
+        if str(remoto[3] or '').strip() != str(local[5] or '').strip(): return True  # nr_contract
+        if str(remoto[4] or '').strip() != str(local[6] or '').strip(): return True  # selecao
+        if str(remoto[5] or '').strip() != str(local[7] or '').strip(): return True  # artigo
+        if str(remoto[7] or '').strip() != str(local[9] or '').strip(): return True  # produto
         
         # Comparação de decimais com tolerância
-        if abs(float(remoto[8] or 0.0) - float(local[8] or 0.0)) > 0.0001: return True           # quantidade
+        if abs(float(remoto[8] or 0.0) - float(local[10] or 0.0)) > 0.0001: return True           # quantidade
         
-        # --- AJUSTE 1: Adicionada comparação da quantidade entregue ---
-        if abs(float(remoto[9] or 0.0) - float(local[9] or 0.0)) > 0.0001: return True           # quantidade_entregue
-        
-        if str(remoto[10] or '') != str(local[10] or ''): return True               # dt_programada
-        if str(remoto[13] or '').strip() != str(local[13] or '').strip(): return True  # espessura
-        if str(remoto[14] or '').strip() != str(local[14] or '').strip(): return True  # unidade_medida
+        # Para evitar loops infinitos, confiamos no select já formatado
+        if str(remoto[13] or '').strip() != str(local[14] or '').strip(): return True  # espessura
+        if str(remoto[14] or '').strip() != str(local[15] or '').strip(): return True  # unidade_medida
         return False
 
     def _formatar_dt(self, valor):
@@ -270,3 +267,5 @@ class SelectPedidos(object):
                     raise e # O raise faz com que o transaction.atomic() perceba o erro e aplique um Rollback Seguro
 
 # NOTA: As duas linhas que executavam o ficheiro sozinhos (p = SelectPedidos()...) foram removidas!
+# p = SelectPedidos()
+# p.dbsqlite()
