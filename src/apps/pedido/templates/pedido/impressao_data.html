@@ -197,6 +197,9 @@
             
             td::before { display: none !important; }
             .status-prazo { font-weight: bold; display: block; font-size: 8pt; }
+            
+            /* Evitar repetição do total geral em todas as páginas */
+            tfoot { display: table-row-group; }
             .subtotal-cliente-row, .subtotal-row, .grand-total-row { font-weight: bold; display: table-row !important; }
             .total-label-cell { text-align: right; padding-right: 15px; display: table-cell !important; }
             .card-table { box-shadow: none; border: none; overflow: visible; }
@@ -227,6 +230,10 @@
             <div class="filter-group">
                 <label for="filter-cliente">Cliente</label>
                 <input type="text" id="filter-cliente" class="filter-input" placeholder="Filtrar cliente...">
+            </div>
+            <div class="filter-group">
+                <label for="filter-diferente">Diferente de</label>
+                <input type="text" id="filter-diferente" class="filter-input" placeholder="Ocultar (cliente, artigo...)">
             </div>
             <div class="filter-group">
                 <label for="filter-artigo">Artigo</label>
@@ -386,6 +393,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const valArtigo = document.getElementById('filter-artigo').value.toLowerCase();
         const valContract = document.getElementById('filter-contract').value.toLowerCase();
         const valObs = document.getElementById('filter-obs').value.toLowerCase();
+        const valDiferente = document.getElementById('filter-diferente').value.toLowerCase();
         const diasTransp = parseInt(inputDias.value) || 0;
         const dateStart = inputDateStart.value;
         const dateEnd = inputDateEnd.value;
@@ -406,6 +414,15 @@ document.addEventListener('DOMContentLoaded', function() {
                           txtArtigo.includes(valArtigo) &&
                           txtContract.includes(valContract) &&
                           txtObs.includes(valObs);
+
+            if (matches && valDiferente) {
+                if (txtCliente.includes(valDiferente) || 
+                    txtArtigo.includes(valDiferente) || 
+                    txtContract.includes(valDiferente) || 
+                    txtObs.includes(valDiferente)) {
+                    matches = false;
+                }
+            }
 
             if (matches && dateStart && rowDate < dateStart) matches = false;
             if (matches && dateEnd && rowDate > dateEnd) matches = false;

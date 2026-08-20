@@ -267,5 +267,5 @@ class SelectPedidos(object):
                     raise e # O raise faz com que o transaction.atomic() perceba o erro e aplique um Rollback Seguro
 
 # NOTA: As duas linhas que executavam o ficheiro sozinhos (p = SelectPedidos()...) foram removidas!
-# p = SelectPedidos()
-# p.dbsqlite()
+p = SelectPedidos()
+p.dbsqlite()
