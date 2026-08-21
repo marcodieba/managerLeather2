@@ -128,7 +128,7 @@ class Requisicao(models.Model):
             outras_requisicoes = Requisicao.objects.filter(pedido_links__pedido=pedido).exclude(pk=self.pk)
             total_quantidade = sum(req.quantidade or 0 for req in outras_requisicoes)
 
-            if self.quantidade and (total_quantidade + self.quantidade > pedido.quantidade * 5.1):
+            if self.quantidade and (total_quantidade + self.quantidade > pedido.quantidade * 105.1):
                 raise ValidationError(
                     f"A quantidade desta requisição ({self.quantidade}) somada às outras já vinculadas ao pedido {pedido.cd_pedido} excede o limite estipulado."
                 )
