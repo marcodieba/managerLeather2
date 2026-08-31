@@ -20,7 +20,7 @@ from sqlite_repair_core import repair_database
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verifica e repara um banco SQLite corrompido.")
-    parser.add_argument("db_path", help="Caminho para o arquivo .sqlite3")
+    parser.add_argument("db_path", nargs="?", default=None, help="Caminho para o arquivo .sqlite3 (se omitido, será solicitado)")
     parser.add_argument(
         "--backup-dir",
         default=None,
@@ -46,6 +46,12 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+
+    if not args.db_path:
+        args.db_path = input("Digite o caminho para o arquivo do banco de dados (.sqlite3): ").strip()
+        if not args.db_path:
+            print("Erro: Nenhum caminho fornecido. Saindo...")
+            return 1
 
     logging.basicConfig(
         level=logging.WARNING if args.quiet else logging.INFO,
