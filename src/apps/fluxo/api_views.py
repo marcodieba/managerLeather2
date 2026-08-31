@@ -125,30 +125,46 @@ def api_resumo_lotes_ativos(request):
     dados_relatorio = []
 
     for req in requisicoes_ativas:
-        primeiro_fluxo = req.fluxos.order_by('dt_processo', 'id').first()
+        # [OTIMIZADO] Usa dados já carregados pelo prefetch — sem queries extras por req
+        todos_fluxos = list(req.fluxos.all())  # usa cache do prefetch
+
+        if not todos_fluxos:
+            continue
+
+        # Primeiro fluxo com data (equivalente a order_by('dt_processo','id').first())
+        fluxos_com_data = [f for f in todos_fluxos if f.dt_processo]
+        primeiro_fluxo = min(fluxos_com_data, key=lambda f: (f.dt_processo, f.id)) if fluxos_com_data else None
+
         if not primeiro_fluxo:
             continue
-        
+
         data_inicio_total = primeiro_fluxo.dt_processo
         tempo_total_segundos = calcular_segundos(data_inicio_total, datetime.now())
-        
-        fluxos_ativos = req.fluxos.filter(encerrado=False)
+
+        # Fluxos abertos — filtrado em Python, sem nova query
+        fluxos_ativos = [f for f in todos_fluxos if not f.encerrado]
         locais_atuais = []
-        
+
         for f in fluxos_ativos:
             if f.processo:
                 valor_retido = float(f.quantidade or 0) * float(req.custo_requisicao or 0)
+                # dt_processo=None significa fila de espera (lote ainda não entrou na máquina)
+                if f.dt_processo:
+                    tempo_setor = formatar_tempo(calcular_segundos(f.dt_processo, datetime.now()))
+                else:
+                    tempo_setor = "Aguardando"
                 locais_atuais.append({
                     'nome': f.processo.nome,
                     'quantidade': f.quantidade,
                     'valor_retido': valor_retido,
-                    'tempo_no_setor': formatar_tempo(calcular_segundos(f.dt_processo, datetime.now()))
+                    'tempo_no_setor': tempo_setor
                 })
 
-        # Alerta OTD (On-Time Delivery)
+        # Alerta OTD (On-Time Delivery) — usa prefetch cache de pedido_links
         risco_atraso = False
         data_embarque = None
-        link_pedido = req.pedido_links.first()
+        todos_links = list(req.pedido_links.all())  # usa cache do prefetch
+        link_pedido = todos_links[0] if todos_links else None
         if link_pedido and link_pedido.pedido and link_pedido.pedido.dt_programada:
             data_embarque = link_pedido.pedido.dt_programada
             if isinstance(data_embarque, datetime):

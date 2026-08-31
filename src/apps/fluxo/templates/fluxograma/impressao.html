@@ -281,7 +281,7 @@
             <img src="{{ item.get_qrcode_base64 }}" alt="QR Code {{ item.cd_requisicao }}"  style="width: 150px; margin-left: 20px;">
         </div>
             {% if item.pedido_links.select_related %}
-                {%  for link in item.pedido_links.select_related %}
+                {%  for link in item.pedido_links.select_related.first %}
                     <div class="header-info">
                         <div><strong>CLIENTE:</strong> {{link.pedido.cliente}}</div>
                         <div><strong>Nº PEDIDO:</strong>{{link.pedido.nr_contract}}</div>

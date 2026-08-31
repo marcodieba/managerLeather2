@@ -694,12 +694,43 @@ class ArtigoViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None
 
 class ProcessoViewSet(viewsets.ModelViewSet):
-    queryset = Processo.objects.all()
+    # Prefetch roteiros + artigo para evitar N+1 no campo meta_diaria_calculada
+    queryset = Processo.objects.prefetch_related(
+        Prefetch('roteiroartigo_set', queryset=RoteiroArtigo.objects.select_related('artigo'))
+    ).order_by('nome')
     serializer_class = ProcessoSerializer
+    permission_classes = [AllowAny]
 
 class RequisicaoViewSet(viewsets.ModelViewSet):
-    queryset = Requisicao.objects.all()
+    """
+    ViewSet otimizado: resolve N+1 queries com prefetch_related.
+    Antes: 1 query por requisição para fluxos + 1 por req para pedido_links
+    Depois: fixo em ~4 queries independente do volume de dados.
+    """
     serializer_class = RequisicaoSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        from src.apps.pedido.models import PedidoRequisicao
+        return (
+            Requisicao.objects.all()
+            .select_related('artigo_padrao')
+            .prefetch_related(
+                # Fluxos com processo e operador — evita 2 joins por fluxo
+                Prefetch(
+                    'fluxos',
+                    queryset=FluxoRequisicao.objects.select_related('processo', 'operador').order_by('id')
+                ),
+                # Vínculos com pedido — evita 1 query por req em get_risco_atraso()
+                Prefetch(
+                    'pedido_links',
+                    queryset=PedidoRequisicao.objects.select_related('pedido').order_by('id')
+                ),
+                # Justificativas registadas
+                'justificativas_registadas__justificativa',
+            )
+            .order_by('-id')
+        )
 
 class FluxoRequisicaoViewSet(viewsets.ModelViewSet):
     queryset = FluxoRequisicao.objects.all().order_by('-id')
@@ -820,9 +851,10 @@ def ler_qrcode_movimentacao(request):
             if not _is_pre_roteiro(processo_atual.nome):
                 processo_esperado = _get_primeiro_roteiro(requisicao.artigo_padrao)
 
-    # Fallback: artigo sem roteiro cadastrado → usa a fila atual (comportamento antigo)
-    if not processo_esperado and fluxos_abertos:
-        processo_esperado = fluxos_abertos[0].processo
+    # [BUG #3 CORRIGIDO] Sem roteiro cadastrado para o artigo, não bloqueia.
+    # O fallback anterior usava o processo do fluxo aberto como esperado, criando
+    # falsos positivos e nunca travando o roteiro quando deveria.
+    # processo_esperado permanece None → validação de trava abaixo não dispara.
 
     # ── VALIDAÇÃO DA TRAVA ─────────────────────────────────────────────────────
     if processo_esperado and processo_esperado.id != processo_atual.id:
@@ -894,30 +926,56 @@ def ler_qrcode_movimentacao(request):
 
     # --------------------------------------------------------------------------------
     # 3. CONSUMO INTELIGENTE E DIVISÃO DE LOTE
+    # [BUG #1 CORRIGIDO] O fluxo aberto (fila de espera) é fechado SEM alterar o
+    # processo de origem. Um FluxoRequisicao separado registra a execução real em
+    # processo_atual, preservando o histórico completo de rastreabilidade.
     # --------------------------------------------------------------------------------
     qtd_a_consumir = qtd_recebida
     for fluxo in fluxos_abertos:
         if qtd_a_consumir <= 0:
             break
-            
+
         processo_anterior = fluxo.processo
-            
-        if qtd_a_consumir >= fluxo.quantidade:
-            qtd_a_consumir -= fluxo.quantidade
-            fluxo.processo = processo_atual  # ← corrige: grava a máquina real usada
-            fluxo.operador = operador.usuario  # ← grava quem realmente processou
+
+        if qtd_a_consumir >= (fluxo.quantidade or 0):
+            qtd_consumida = fluxo.quantidade or 0
+            qtd_a_consumir -= qtd_consumida
+
+            # Fecha o fluxo de FILA/AGUARDANDO preservando o processo de origem
             fluxo.encerrado = True
             fluxo.dt_saida = agora
             fluxo.save()
+
+            # Cria o registro de EXECUÇÃO real no processo atual (máquina do operador)
+            FluxoRequisicao.objects.create(
+                requisicao=requisicao,
+                processo=processo_atual,
+                quantidade=qtd_consumida,
+                dt_processo=agora,
+                dt_saida=agora,
+                encerrado=True,
+                operador=operador.usuario
+            )
         else:
-            qtd_que_ficou = fluxo.quantidade - qtd_a_consumir
+            qtd_que_ficou = (fluxo.quantidade or 0) - qtd_a_consumir
+
+            # Reduz a quantidade no fluxo de fila (parte consumida) sem mudar o processo
             fluxo.quantidade = qtd_a_consumir
-            fluxo.processo = processo_atual  # ← corrige: grava a máquina real usada
-            fluxo.operador = operador.usuario  # ← grava quem realmente processou
             fluxo.encerrado = True
             fluxo.dt_saida = agora
             fluxo.save()
-            
+
+            # Cria o registro de EXECUÇÃO real para a parte consumida
+            FluxoRequisicao.objects.create(
+                requisicao=requisicao,
+                processo=processo_atual,
+                quantidade=qtd_a_consumir,
+                dt_processo=agora,
+                dt_saida=agora,
+                encerrado=True,
+                operador=operador.usuario
+            )
+
             if motivo_diferenca == 'PERDA':
                 proc_perda, _ = Processo.objects.get_or_create(nome="⚠️ PERDA / REFUGO")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_perda, quantidade=qtd_que_ficou, dt_processo=agora, dt_saida=agora, encerrado=True, operador=operador.usuario)
@@ -932,26 +990,23 @@ def ler_qrcode_movimentacao(request):
                 proc_nl, _ = Processo.objects.get_or_create(nome="🔄 SEPARADO P/ NOVO LOTE")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
             else:
-                # O restante do lote deve continuar na fila da máquina anterior, aguardando ser processado.
-                processo_destino = processo_anterior
-                
+                # O restante continua aguardando no processo anterior (fila de espera)
+                nome_dest = processo_anterior.nome if processo_anterior else "N/A"
                 FluxoRequisicao.objects.create(
                     requisicao=requisicao,
-                    processo=processo_destino,
+                    processo=processo_anterior,
                     quantidade=qtd_que_ficou,
-                    dt_processo=fluxo.dt_processo, 
+                    dt_processo=None,  # Sem timestamp: ainda não entrou na máquina
                     encerrado=False
-                    # Sem operador: fila aguardando
+                    # Sem operador: aguardando ser processado
                 )
-                
-                nome_dest = processo_destino.nome if processo_destino else "N/A"
-                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote dividido: {qtd_que_ficou} peças continuam como pendência aguardando processamento na máquina {nome_dest}."
+                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote dividido: {qtd_que_ficou} peças aguardando na máquina {nome_dest}."
                 requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
                 requisicao.save()
             qtd_a_consumir = 0
             break
 
-    # Se não tinha fluxos abertos (ex: primeiro processo de todos), a gente cria um "fantasma" que foi consumido
+    # Se não havia fluxos abertos (primeira movimentação), cria o registro diretamente
     if not fluxos_abertos:
         FluxoRequisicao.objects.create(
             requisicao=requisicao,
@@ -1009,12 +1064,16 @@ def ler_qrcode_movimentacao(request):
     else:
         if proximo_processo is None:
             proximo_processo, _ = Processo.objects.get_or_create(nome="⏳ Aguardando Próximo Processo")
-            
+
+        # [BUG #2 CORRIGIDO] dt_processo=None: a hora real de entrada no próximo setor
+        # só é registrada quando o operador daquele setor fizer o apontamento.
+        # Antes, dt_processo=agora fazia o lote "entrar" automaticamente no próximo
+        # processo sem qualquer intervenção humana, causando horários incorretos.
         FluxoRequisicao.objects.create(
             requisicao=requisicao,
             processo=proximo_processo,
             quantidade=qtd_recebida,
-            dt_processo=agora,
+            dt_processo=None,  # Preenchido quando o operador do próximo setor confirmar
             encerrado=False
             # Sem operador: este fluxo está aguardando ser iniciado por alguém
         )

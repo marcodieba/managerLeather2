@@ -13,12 +13,12 @@ class ProcessoSerializer(serializers.ModelSerializer):
 
     def get_meta_diaria_calculada(self, obj):
         try:
-            # Encontra todos os artigos que passam por este processo
-            roteiros = obj.roteiroartigo_set.all()
+            # roteiroartigo_set já é prefetched pelo ProcessoViewSet — sem N+1
             total_meta_mes = sum(
-                (r.artigo.meta_mes or 0) for r in roteiros if r.artigo
+                (r.artigo.meta_mes or 0)
+                for r in obj.roteiroartigo_set.all()  # usa cache do prefetch
+                if r.artigo
             )
-            # Assume 22 dias úteis no mês para encontrar a meta diária
             if total_meta_mes > 0:
                 return round(total_meta_mes / 22)
             return 0
@@ -91,7 +91,11 @@ class RequisicaoSerializer(serializers.ModelSerializer):
 
     def get_risco_atraso(self, obj):
         from datetime import date, timedelta, datetime
-        link = obj.pedido_links.first()
+        # Usa .all() em vez de .first() para garantir que o cache do
+        # prefetch_related (configurado no RequisicaoViewSet) seja usado.
+        # .first() pode gerar uma nova query contornando o cache.
+        links = obj.pedido_links.all()
+        link = links[0] if links else None
         if link and link.pedido and link.pedido.dt_programada:
             dt_prog = link.pedido.dt_programada
             if isinstance(dt_prog, datetime):
