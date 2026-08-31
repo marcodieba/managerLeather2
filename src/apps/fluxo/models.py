@@ -166,7 +166,11 @@ class Requisicao(models.Model):
         
         # Converte a imagem para texto Base64 para ser lida no HTML
         buffer = BytesIO()
-        img.save(buffer, format="PNG")
+        try:
+            img.save(buffer, format="PNG")
+        except TypeError:
+            # qrcode.image.pure.PyPNGImage doesn't accept format="PNG"
+            img.save(buffer)
         img_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
         
         return f"data:image/png;base64,{img_str}"

@@ -40,12 +40,8 @@ class SyncOrdemServico:
                 Ordem_Servico.Nr_OS,
                 Dt_Inicio_OS,
                 Ordem_Servico.Marca_no_Couro AS Marca_Couro,
-                ISNULL((SELECT SUM(EES.Qt_Expedicao)
-                        FROM Estoque_Expedicao_SeA EES
-                        WHERE EES.Cd_Pedido_Comercial_Movimento_OS = Ordem_Servico.Codigo), 0) AS Pecas_Exp,
-                ISNULL((SELECT SUM(EES.M2_Pes2)
-                        FROM Estoque_Expedicao_SeA EES
-                        WHERE EES.Cd_Pedido_Comercial_Movimento_OS = Ordem_Servico.Codigo), 0) AS metro2_exp,
+                ISNULL(Ordem_Servico.Quantidade_Exp, 0) AS Pecas_Exp,
+                ISNULL(Ordem_Servico.Pes2_M2_Exp, 0) AS metro2_exp,
                 Ordem_Servico.Cd_Sea_Posicao_OS
             FROM Pedido_Comercial_Artigo_Programacao AS Ordem_Servico
             WHERE Ordem_Servico.Dt_Hr_Digitacao >= DATEADD(day, -90, GETDATE())
@@ -83,19 +79,27 @@ class SyncOrdemServico:
             except (ValueError, TypeError):
                 fulao_int = None
 
-            filtros = {'lote': marca_couro, 'encerrado': False}
-            if fulao_int is not None:
-                filtros['fulao'] = fulao_int
-
-            requisicoes = Requisicao.objects.filter(**filtros).order_by('dt_requisicao')
-
+            from django.db.models import Q
             from datetime import timedelta
             
             pecas_exp    = os.get('Pecas_Exp') or 0
             metro2_exp   = os.get('metro2_exp') or 0.0
             nr_os        = os.get('Nr_OS') or os.get('Codigo')
+            nr_os_str    = str(nr_os) if nr_os else ""
             os_finalizada = str(os.get('Cd_Sea_Posicao_OS', '')) == '7'
             dt_os        = os.get('Dt_Hr_Digitacao') or os.get('Dt_Inicio_OS')
+
+            q_filtros = Q(lote=marca_couro)
+            if fulao_int is not None:
+                q_filtros &= Q(fulao=fulao_int)
+
+            # Permite atualizar as requisições em aberto OU as já encerradas vinculadas a esta OS
+            if nr_os_str:
+                q_filtros &= (Q(encerrado=False) | Q(numero_os=nr_os_str))
+            else:
+                q_filtros &= Q(encerrado=False)
+
+            requisicoes = Requisicao.objects.filter(q_filtros).order_by('dt_requisicao')
 
             for req in requisicoes:
                 # ── Validação 1: Não sobrescrever se a Requisição já tiver outra OS vinculada
