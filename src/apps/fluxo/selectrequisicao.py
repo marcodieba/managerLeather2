@@ -31,7 +31,7 @@ class SelectRequisicao(object):
 
     def requisicao(self):
         cursor = self.conexao()
-        cursor.execute(""" SELECT TOP 20
+        cursor.execute(""" SELECT TOP 30
                                     Requisicao.Codigo,
                                     Requisicao.Dt_Hr_Requisicao,
 
@@ -144,7 +144,8 @@ class SelectRequisicao(object):
                                     ON Formulacao.Cd_Formulacao_Grupo = Formulacao_Grupo.Codigo
 
                                 WHERE
-                                    (Grupo_Industria = 'S' OR Grupo_Industria = 'W')
+                                   
+                                    (Grupo_Industria = 'S')
                                     AND EXISTS (
                                         SELECT 1
                                         FROM Requisicao_Partida RP_Exists
