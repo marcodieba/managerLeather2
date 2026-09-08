@@ -85,7 +85,6 @@ class SyncOrdemServico:
             pecas_exp    = os.get('Pecas_Exp') or 0
             metro2_exp   = os.get('metro2_exp') or 0.0
             nr_os        = os.get('Nr_OS') or os.get('Codigo')
-            nr_os_str    = str(nr_os) if nr_os else ""
             posicao_os = os.get('Cd_Sea_Posicao_OS')
             try:
                 os_finalizada = int(float(posicao_os)) == 7
@@ -97,12 +96,9 @@ class SyncOrdemServico:
             if fulao_int is not None:
                 q_filtros &= Q(fulao=fulao_int)
 
-            # Permite atualizar as requisições em aberto OU as já encerradas vinculadas a esta OS
-            if nr_os_str:
-                q_filtros &= (Q(encerrado=False) | Q(numero_os=nr_os_str))
-            else:
-                q_filtros &= Q(encerrado=False)
-
+            # Reavalia também requisições já encerradas. Caso o ERP não esteja
+            # na posição 7, uma requisição fechada anteriormente precisa poder
+            # ser reaberta.
             requisicoes = Requisicao.objects.filter(q_filtros).order_by('dt_requisicao')
 
             for req in requisicoes:
