@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guia animado do fluxo de producao</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #64748b;
+      --paper: #f8fafc;
+      --orange: #d97706;
+      --orange-light: #ffedd5;
+      --blue: #2563eb;
+      --green: #15803d;
+      --red: #b91c1c;
+      --line: #dbe3ef;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: linear-gradient(135deg, #fff7ed, #eff6ff);
+      font: 16px/1.5 "Trebuchet MS", system-ui, sans-serif;
+    }
+    .app { max-width: 1120px; margin: auto; padding: 24px; }
+    header { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
+    h1 { margin: 0 0 6px; font-size: clamp(1.8rem, 4vw, 3rem); }
+    h2 { margin-top: 0; }
+    .subtitle { color: var(--muted); margin: 0; }
+    .badge {
+      padding: 8px 12px; border-radius: 999px; background: var(--orange-light);
+      color: #9a3412; font-weight: 700; white-space: nowrap;
+    }
+    .board {
+      position: relative; min-height: 410px; margin-top: 22px; padding: 28px;
+      overflow: hidden; border: 3px solid var(--ink); border-radius: 24px;
+      background: var(--paper); box-shadow: 8px 8px 0 #cbd5e1;
+    }
+    .scene { display: none; animation: arrive .45s ease both; }
+    .scene.active { display: block; }
+    @keyframes arrive { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: none; } }
+    .scene-title { display: flex; align-items: center; gap: 12px; }
+    .scene-number {
+      display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%;
+      background: var(--orange); color: white; font-weight: 800; font-size: 1.3rem;
+    }
+    .cartoon { display: flex; align-items: center; gap: 24px; min-height: 210px; }
+    .operator { position: relative; width: 140px; height: 165px; flex: 0 0 140px; }
+    .head { position: absolute; left: 39px; top: 2px; width: 64px; height: 64px; border: 3px solid var(--ink); border-radius: 50%; background: #f7cfa9; }
+    .head:before, .head:after { content: ""; position: absolute; top: 28px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink); }
+    .head:before { left: 17px; } .head:after { right: 17px; }
+    .body { position: absolute; left: 25px; top: 64px; width: 92px; height: 92px; border: 3px solid var(--ink); border-radius: 38% 38% 18% 18%; background: var(--blue); }
+    .arm { position: absolute; top: 92px; width: 58px; height: 16px; border: 3px solid var(--ink); border-radius: 20px; background: #f7cfa9; }
+    .arm.left { left: 2px; transform: rotate(25deg); } .arm.right { right: 0; transform: rotate(-25deg); }
+    .bubble {
+      position: relative; max-width: 650px; padding: 20px; border: 3px solid var(--ink);
+      border-radius: 18px; background: white; box-shadow: 5px 5px 0 #cbd5e1;
+    }
+    .bubble:before { content: ""; position: absolute; left: -16px; top: 60px; border-width: 12px 16px 12px 0; border-style: solid; border-color: transparent var(--ink) transparent transparent; }
+    .bubble strong { display: block; margin-bottom: 8px; font-size: 1.2rem; }
+    .steps { display: grid; gap: 8px; margin: 12px 0 0; padding-left: 22px; }
+    .counter { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-weight: 800; }
+    .bar { width: min(360px, 100%); height: 18px; overflow: hidden; border: 2px solid var(--ink); border-radius: 99px; background: #e2e8f0; }
+    .bar span { display: block; height: 100%; width: 47%; background: var(--orange); transition: width .8s ease; }
+    .machine { padding: 22px; border: 3px solid var(--ink); border-radius: 16px; background: #dbeafe; text-align: center; font-weight: 800; }
+    .machine.pulse { animation: pulse 1.4s infinite; }
+    @keyframes pulse { 50% { transform: scale(1.04); box-shadow: 0 0 0 10px #bfdbfe; } }
+    .alert { padding: 14px; border-left: 6px solid var(--red); background: #fee2e2; color: #7f1d1d; font-weight: 700; }
+    .success { padding: 14px; border-left: 6px solid var(--green); background: #dcfce7; color: #14532d; font-weight: 700; }
+    .classifications { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .classifications span { padding: 7px 10px; border-radius: 8px; background: #ede9fe; border: 2px solid #8b5cf6; font-weight: 700; }
+    .controls { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 26px; }
+    button { cursor: pointer; border: 0; border-radius: 10px; padding: 12px 18px; background: var(--ink); color: white; font: inherit; font-weight: 700; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    button.secondary { background: white; color: var(--ink); border: 2px solid var(--ink); }
+    .progress { display: flex; gap: 6px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; }
+    .dot.active { background: var(--orange); transform: scale(1.25); }
+    footer { margin-top: 24px; padding: 18px; border-radius: 14px; background: #172033; color: #e2e8f0; }
+    footer strong { color: #fdba74; }
+    @media (max-width: 700px) {
+      .app { padding: 14px; } header { display: block; } .badge { display: inline-block; margin-top: 12px; }
+      .board { padding: 18px; } .cartoon { display: block; } .operator { margin: auto; transform: scale(.8); }
+      .bubble:before { display: none; } .controls { flex-wrap: wrap; } .progress { order: -1; width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <h1>O caminho certo do fluxo</h1>
+        <p class="subtitle">Um guia animado para registrar cada couro sem perder quantidade ou classificacao.</p>
+      </div>
+      <span class="badge">Treinamento operacional</span>
+    </header>
+
+    <section class="board" aria-live="polite">
+      <article class="scene active">
+        <div class="scene-title"><span class="scene-number">1</span><h2>Antes de iniciar</h2></div>
+        <div class="cartoon">
+          <div class="operator"><div class="head"></div><div class="body"></div><div class="arm left"></div><div class="arm right"></div></div>
+          <div class="bubble"><strong>Vamos conferir juntos?</strong>
+            <ol class="steps"><li>Requisicao, lote, artigo e total.</li><li>Operador e processo corretos.</li><li>Quantidade fisica e saldo disponivel.</li></ol>
+          </div>
+        </div>
+      </article>
+
+      <article class="scene">
+        <div class="scene-title"><span class="scene-number">2</span><h2>Inicie o processo no momento certo</h2></div>
+        <div class="cartoon">
+          <div class="operator"><div class="head"></div><div class="body"></div><div class="arm left"></div><div class="arm right"></div></div>
+          <div class="bubble"><strong>Bipe, confira, informe e registre.</strong>
+            <p>Abra o leitor, bipe o QR Code, confirme o processo mostrado e lance somente o que entrou fisicamente.</p>
+            <div class="machine pulse">LEITOR: QR-OS-211<br><small>PROCESSO: PRENSA</small></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="scene">
+        <div class="scene-title"><span class="scene-number">3</span><h2>Transferencia parcial</h2></div>
+        <div class="cartoon">
+          <div class="operator"><div class="head"></div><div class="body"></div><div class="arm left"></div><div class="arm right"></div></div>
+          <div class="bubble"><strong>211 nao significa que 211 chegaram.</strong>
+            <p>Se chegaram 100, registre 100. O saldo 111 continua no processo anterior e sera transferido quando realmente avancar.</p>
+            <div class="counter">100 de 211 <div class="bar"><span></span></div></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="scene">
+        <div class="scene-title"><span class="scene-number">4</span><h2>Quantidade maior exige autorizacao</h2></div>
+        <div class="cartoon">
+          <div class="operator"><div class="head"></div><div class="body"></div><div class="arm left"></div><div class="arm right"></div></div>
+          <div class="bubble"><strong>O sistema bloqueou o excedente.</strong>
+            <div class="alert">Quantidade acima do saldo? Pare. Informe o motivo na tela de bloqueio e aguarde usuario e senha do supervisor.</div>
+            <p>A autorizacao registra a justificativa. Ela nao permite duplicar uma entrada ja feita.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="scene">
+        <div class="scene-title"><span class="scene-number">5</span><h2>Medidora: conte e classifique</h2></div>
+        <div class="cartoon">
+          <div class="operator"><div class="head"></div><div class="body"></div><div class="arm left"></div><div class="arm right"></div></div>
+          <div class="bubble"><strong>A Medidora registra o que recebeu agora.</strong>
+            <p>Se recebeu 84 de 85, lance 84. Selecione a classificacao observada: aprovado ou outra opcao correta.</p>
+            <div class="classifications"><span>Aprovado</span><span>Reclassificar</span><span>Refugo</span><span>Outra opcao</span></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="scene">
+        <div class="scene-title"><span class="scene-number">6</span><h2>Totalize sem duplicar</h2></div>
+        <div class="cartoon">
+          <div class="operator"><div class="head"></div><div class="body"></div><div class="arm left"></div><div class="arm right"></div></div>
+          <div class="bubble"><strong>84 + 1 = 85: agora fechou a quantidade fisica.</strong>
+            <p>Continue registrando entradas reais e suas classificacoes ate totalizar a requisicao. Nunca repita os 84 para completar.</p>
+            <div class="counter">85 de 85 <div class="bar"><span style="width:100%;background:var(--green)"></span></div></div>
+            <div class="success">Historico conferido: quantidade, processo, operador e classificacao.</div>
+          </div>
+        </div>
+      </article>
+
+      <article class="scene">
+        <div class="scene-title"><span class="scene-number">7</span><h2>Encerramento administrativo</h2></div>
+        <div class="cartoon">
+          <div class="operator"><div class="head"></div><div class="body"></div><div class="arm left"></div><div class="arm right"></div></div>
+          <div class="bubble"><strong>Etapa e requisicao sao coisas diferentes.</strong>
+            <p>Uma etapa termina quando a quantidade sai dela. A requisicao termina administrativamente quando o ERP informa <b>Cd_Sea_Posicao_OS = 7</b>.</p>
+            <div class="success">Posicao 7: requisicao encerrada pelo ERP.</div>
+            <p>Outra posicao: mantenha a requisicao aberta e comunique a divergencia.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="scene">
+        <div class="scene-title"><span class="scene-number">8</span><h2>Regra de ouro</h2></div>
+        <div class="cartoon">
+          <div class="operator"><div class="head"></div><div class="body"></div><div class="arm left"></div><div class="arm right"></div></div>
+          <div class="bubble"><strong>Parou, conferiu, corrigiu.</strong>
+            <p>Ao encontrar divergencia, nao compense com novo lancamento. Anote OS, processo, quantidade e operador; avise a supervisao e confirme o historico apos o ajuste.</p>
+            <div class="success">Quantidade real + classificacao correta + historico completo.</div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <div class="controls">
+      <button class="secondary" id="restart">Recomecar</button>
+      <div class="progress" id="progress" aria-label="Progresso das cenas"></div>
+      <div>
+        <button class="secondary" id="previous">Anterior</button>
+        <button id="next">Proxima cena</button>
+      </div>
+    </div>
+    <footer><strong>Importante:</strong> a Medidora controla o recebimento fisico e a classificacao. O ERP controla o encerramento administrativo pela posicao 7.</footer>
+  </main>
+  <script>
+    const scenes = [...document.querySelectorAll(".scene")];
+    const progress = document.querySelector("#progress");
+    const previous = document.querySelector("#previous");
+    const next = document.querySelector("#next");
+    let current = 0;
+
+    scenes.forEach((_, index) => {
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.title = `Cena ${index + 1}`;
+      dot.addEventListener("click", () => show(index));
+      progress.append(dot);
+    });
+
+    function show(index) {
+      current = Math.max(0, Math.min(index, scenes.length - 1));
+      scenes.forEach((scene, sceneIndex) => scene.classList.toggle("active", sceneIndex === current));
+      [...progress.children].forEach((dot, dotIndex) => dot.classList.toggle("active", dotIndex === current));
+      previous.disabled = current === 0;
+      next.disabled = current === scenes.length - 1;
+      next.textContent = current === scenes.length - 1 ? "Concluido" : "Proxima cena";
+    }
+    previous.addEventListener("click", () => show(current - 1));
+    next.addEventListener("click", () => show(current + 1));
+    document.querySelector("#restart").addEventListener("click", () => show(0));
+    show(0);
+  </script>
+</body>
+</html>

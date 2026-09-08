@@ -16,6 +16,9 @@ scripts/
 └── README.md
 ```
 
+O tutorial operacional visual está em
+`tutorial_fluxo_animado.html`; abra-o diretamente no navegador.
+
 ## Princípio de segurança
 
 O arquivo **original nunca é modificado durante as tentativas de reparo**.
