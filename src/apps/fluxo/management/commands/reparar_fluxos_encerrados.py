@@ -1,6 +1,5 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.utils import timezone
 
 from src.apps.fluxo.models import FluxoRequisicao, Requisicao
 from src.apps.fluxo.sync_os_encerra import SyncOrdemServico
@@ -27,6 +26,15 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         aplicar = options["apply"]
         ignorar_sync = options["skip_sync"]
+
+        if aplicar and ignorar_sync:
+            self.stderr.write(
+                self.style.ERROR(
+                    "Por segurança, --apply exige a sincronização do ERP. "
+                    "Use --skip-sync apenas para simulação."
+                )
+            )
+            return
 
         if aplicar and not ignorar_sync:
             self.stdout.write("Sincronizando ordens do ERP...")
@@ -59,26 +67,27 @@ class Command(BaseCommand):
         )
         total_candidatos = 0
         total_fluxos = 0
-
         for requisicao in candidatos:
             fluxos = list(requisicao.fluxos.all())
             ativos = [fluxo for fluxo in fluxos if not fluxo.encerrado]
+
             if not ativos:
                 continue
 
-            saidas_medidora = [
-                fluxo
-                for fluxo in fluxos
-                if fluxo.encerrado
-                and fluxo.dt_saida
-                and fluxo.processo
-                and "medidora" in fluxo.processo.nome.casefold()
-            ]
-            referencia = max(
-                (fluxo.dt_saida for fluxo in saidas_medidora),
+            data_saida = max(
+                (
+                    fluxo.dt_saida
+                    for fluxo in fluxos
+                    if fluxo.encerrado and fluxo.dt_saida
+                ),
                 default=None,
             )
-            data_saida = referencia or timezone.now()
+            if data_saida is None:
+                self.stdout.write(
+                    f"Req {requisicao.cd_requisicao}: ignorada; "
+                    "não há saída histórica para datar a correção."
+                )
+                continue
 
             total_candidatos += 1
             total_fluxos += len(ativos)
@@ -104,7 +113,7 @@ class Command(BaseCommand):
         modo = "corrigidos" if aplicar else "encontrados"
         self.stdout.write(
             self.style.SUCCESS(
-                f"{total_candidatos} requisição(ões) {modo}; "
-                f"{total_fluxos} fluxo(s) processado(s)."
+                        f"{total_candidatos} requisição(ões) {modo}; "
+                        f"{total_fluxos} fluxo(s) processado(s)."
             )
         )

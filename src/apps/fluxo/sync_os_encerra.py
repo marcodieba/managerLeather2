@@ -86,7 +86,11 @@ class SyncOrdemServico:
             metro2_exp   = os.get('metro2_exp') or 0.0
             nr_os        = os.get('Nr_OS') or os.get('Codigo')
             nr_os_str    = str(nr_os) if nr_os else ""
-            os_finalizada = str(os.get('Cd_Sea_Posicao_OS', '')) == '7'
+            posicao_os = os.get('Cd_Sea_Posicao_OS')
+            try:
+                os_finalizada = int(float(posicao_os)) == 7
+            except (TypeError, ValueError):
+                os_finalizada = False
             dt_os        = os.get('Dt_Hr_Digitacao') or os.get('Dt_Inicio_OS')
 
             q_filtros = Q(lote=marca_couro)
@@ -142,11 +146,15 @@ class SyncOrdemServico:
                         campos_atualizados.append(f"rend={rend_calc}%")
 
 
-                # ── Encerra SOMENTE quando OS finalizada (posição 7) ──────────
+                # ── A posição 7 do ERP é a única condição de encerramento.
                 if os_finalizada:
                     req.encerrado = True
                     houve_mudanca = True
                     campos_atualizados.append("encerrado=True")
+                elif req.encerrado:
+                    req.encerrado = False
+                    houve_mudanca = True
+                    campos_atualizados.append("encerrado=False (OS não finalizada)")
 
                 # ── Salva o Número da OS ───────────────────────────────────────
                 if req.numero_os != str(nr_os):
