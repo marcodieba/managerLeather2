@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 # 🌟 ADICIONE ESTES DOIS IMPORTS NOVOS SE AINDA NÃO ESTIVEREM LÁ EM CIMA:
 from django.db.models.signals import pre_save, post_save
 from django.utils import timezone
@@ -302,6 +303,41 @@ class FluxoRequisicao(models.Model):
         return f"{self.requisicao.cd_requisicao} em {nome_processo}"
 
 
+class MovimentacaoProducao(models.Model):
+    """Registro imutável da movimentação física de uma requisição."""
+
+    requisicao = models.ForeignKey(
+        Requisicao,
+        on_delete=models.CASCADE,
+        related_name='movimentacoes_producao',
+    )
+    processo_destino = models.ForeignKey(
+        Processo,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='movimentacoes_destino',
+    )
+    quantidade = models.BigIntegerField()
+    origens = models.JSONField(default=list)
+    operador = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='movimentacoes_producao',
+    )
+    motivo = models.CharField(max_length=50, blank=True, default='')
+    observacao = models.TextField(blank=True, default='')
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-criado_em', '-id']
+
+    def __str__(self):
+        destino = self.processo_destino.nome if self.processo_destino else "Desconhecido"
+        return f"{self.requisicao.cd_requisicao}: {self.quantidade} em {destino}"
+
+
 class CustoRequisicao(models.Model):
     requisicao = models.ForeignKey(Requisicao, on_delete=models.CASCADE, related_name='custos')
     produto = models.ForeignKey(Produto, on_delete=models.CASCADE, related_name='produtos')
@@ -315,8 +351,6 @@ class CustoRequisicao(models.Model):
     rend = models.FloatField(('Rendimento'), default=0, null=True, blank=True)
     data = models.DateTimeField(('Criado em'), auto_now_add=True)
 
-
-from django.contrib.auth.models import User
 
 class Operador(models.Model):
     # Liga este perfil a um usuário real do Django
@@ -467,6 +501,4 @@ class FechamentoDiario(models.Model):
 
     def __str__(self):
         return f"{self.data} | Total: {self.total} m²"
-
-
 

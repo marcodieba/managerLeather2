@@ -40,8 +40,8 @@ class SyncOrdemServico:
                 Ordem_Servico.Nr_OS,
                 Dt_Inicio_OS,
                 Ordem_Servico.Marca_no_Couro AS Marca_Couro,
-                ISNULL(Ordem_Servico.Quantidade_Exp, 0) AS Pecas_Exp,
-                ISNULL(Ordem_Servico.Pes2_M2_Exp, 0) AS metro2_exp,
+                Ordem_Servico.Quantidade_Exp AS Pecas_Exp,
+                Ordem_Servico.Pes2_M2_Exp AS metro2_exp,
                 Ordem_Servico.Cd_Sea_Posicao_OS
             FROM Pedido_Comercial_Artigo_Programacao AS Ordem_Servico
             WHERE Ordem_Servico.Dt_Hr_Digitacao >= DATEADD(day, -90, GETDATE())
@@ -115,25 +115,25 @@ class SyncOrdemServico:
                 houve_mudanca     = False
                 campos_atualizados = []
 
-                nova_m2 = float(metro2_exp) if metro2_exp else 0.0
-                nova_qt = int(pecas_exp) if pecas_exp else 0
+                nova_m2 = float(metro2_exp) if metro2_exp is not None else None
+                nova_qt = int(pecas_exp) if pecas_exp is not None else None
 
                 # ── Atualiza m2 produzido (parcial ou final) ───────────────────
                 m2_atual = float(req.m2) if req.m2 is not None else 0.0
-                if abs(m2_atual - nova_m2) > 0.001:
+                if nova_m2 is not None and abs(m2_atual - nova_m2) > 0.001:
                     req.m2 = nova_m2
                     houve_mudanca = True
                     campos_atualizados.append(f"m2={nova_m2:.2f}")
 
                 # ── Atualiza peças expedidas ───────────────────────────────────
                 qt_atual = int(req.qt) if req.qt is not None else 0
-                if qt_atual != nova_qt:
+                if nova_qt is not None and qt_atual != nova_qt:
                     req.qt = nova_qt
                     houve_mudanca = True
                     campos_atualizados.append(f"qt={nova_qt}")
 
                 # ── Calcula rendimento: m2_saida / qt_mt_entrada * 100 ─────────
-                if nova_m2 > 0 and req.qt_mt and float(req.qt_mt) > 0:
+                if nova_m2 is not None and nova_m2 > 0 and req.qt_mt and float(req.qt_mt) > 0:
                     rend_calc = round((nova_m2 / float(req.qt_mt)) * 100, 2)
                     rend_atual = float(req.rend) if req.rend is not None else 0.0
                     if abs(rend_atual - rend_calc) > 0.01:
@@ -174,9 +174,11 @@ class SyncOrdemServico:
                     atualizadas += 1
                     if os_finalizada:
                         encerradas += 1
+                        m2_log = f"{req.m2:.2f}" if req.m2 is not None else "N/A"
+                        qt_log = req.qt if req.qt is not None else "N/A"
                         logs.append(
                             f"[ENCERRADO] Req {req.cd_requisicao} ({marca_couro}) — "
-                            f"OS {nr_os}: m2={nova_m2:.2f}, qt={nova_qt}."
+                            f"OS {nr_os}: m2={m2_log}, qt={qt_log}."
                         )
                     else:
                         logs.append(

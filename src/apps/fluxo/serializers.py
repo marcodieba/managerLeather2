@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Processo, Requisicao, FluxoRequisicao, Operador, Justificativa, RequisicaoJustificativa, CustoTintaRegistro, CustoFulaoRegistro, FechamentoDiario, Artigo
+from .models import Processo, Requisicao, FluxoRequisicao, MovimentacaoProducao, Operador, Justificativa, RequisicaoJustificativa, CustoTintaRegistro, CustoFulaoRegistro, FechamentoDiario, Artigo
 from datetime import datetime
 from src.apps.pedido.models import Pedido
 
@@ -67,13 +67,29 @@ class FluxoRequisicaoSerializer(serializers.ModelSerializer):
         model = FluxoRequisicao
         fields = ['id', 'processo', 'processo_nome', 'quantidade', 'encerrado', 'dt_processo', 'dt_saida', 'operador_nome']
 
+
+class MovimentacaoProducaoSerializer(serializers.ModelSerializer):
+    processo_destino_nome = serializers.CharField(source='processo_destino.nome', read_only=True)
+    operador_nome = serializers.CharField(source='operador.username', read_only=True)
+
+    class Meta:
+        model = MovimentacaoProducao
+        fields = [
+            'id', 'requisicao', 'processo_destino', 'processo_destino_nome',
+            'quantidade', 'origens', 'operador', 'operador_nome',
+            'motivo', 'observacao', 'criado_em',
+        ]
+        read_only_fields = fields
+
+
 class ArtigoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Artigo
         fields = ['id', 'nome']
 
 class RequisicaoSerializer(serializers.ModelSerializer):
-    fluxos = FluxoRequisicaoSerializer(many=True, read_only=True)
+    fluxos = FluxoRequisicaoSerializer(many=True, required=False)
+    movimentacoes_producao = MovimentacaoProducaoSerializer(many=True, read_only=True)
     justificativas_registadas = RequisicaoJustificativaSerializer(many=True, read_only=True)
     risco_atraso = serializers.SerializerMethodField()
     artigo_generico = serializers.CharField(source='artigo_padrao.nome', read_only=True)
@@ -83,7 +99,8 @@ class RequisicaoSerializer(serializers.ModelSerializer):
         model = Requisicao
         fields = [
             'id', 'data', 'cd_requisicao', 'artigo', 'nr_pedido', 'quantidade', 'lote', 
-            'dt_requisicao', 'modificado', 'encerrado', 'fluxos', 'setor', 'qt_mt', 'm2', 'qt',
+            'dt_requisicao', 'modificado', 'encerrado', 'fluxos', 'movimentacoes_producao',
+            'setor', 'qt_mt', 'm2', 'qt',
             'am', 'exp_qt', 'exp_m2', 'exp_am', 'rend', 'kg_blue', 'seco', 'justificativas_registadas',
             'custo_requisicao', 'risco_atraso', 'artigo_generico', 'artigo_padrao',
             'cor', 'espessura', 'classe', 'fulao'
@@ -105,7 +122,9 @@ class RequisicaoSerializer(serializers.ModelSerializer):
         return False
 
     def update(self, instance, validated_data):
-        fluxos_data = validated_data.pop('fluxos', [])
+        # A ausência de "fluxos" em um PATCH não significa que os processos
+        # devam ser removidos. Só substitui a lista quando ela foi enviada.
+        fluxos_data = validated_data.pop('fluxos', None)
         refilo_kg = validated_data.pop('refilo_kg', None)
         processo_refilo = validated_data.pop('processo_refilo', None)
         
@@ -114,21 +133,22 @@ class RequisicaoSerializer(serializers.ModelSerializer):
         if refilo_kg is not None and refilo_kg > 0:
             Refilo.objects.create(requisicao=instance, processo=processo_refilo, qt_refila=refilo_kg)
 
-        instance.fluxos.all().delete()
+        if fluxos_data is not None:
+            instance.fluxos.all().delete()
 
-        for fluxo_data in fluxos_data:
-            processo = fluxo_data.pop('processo')
+            for fluxo_data in fluxos_data:
+                processo = fluxo_data.pop('processo')
 
-            # Converte datetime para date, se necessário
-            dt_processo = fluxo_data.get('dt_processo')
-            if isinstance(dt_processo, datetime):
-                fluxo_data['dt_processo'] = dt_processo.date()
+                # Converte datetime para date, se necessário
+                dt_processo = fluxo_data.get('dt_processo')
+                if isinstance(dt_processo, datetime):
+                    fluxo_data['dt_processo'] = dt_processo.date()
 
-            FluxoRequisicao.objects.create(
-                requisicao=instance,
-                processo=processo,
-                **fluxo_data
-            )
+                FluxoRequisicao.objects.create(
+                    requisicao=instance,
+                    processo=processo,
+                    **fluxo_data
+                )
 
         return instance
 
@@ -173,5 +193,3 @@ class FechamentoDiarioSerializer(serializers.ModelSerializer):
         model  = FechamentoDiario
         fields = ['id', 'data', 'turno_dia', 'turno_noite', 'total', 'obs', 'criado_em']
         read_only_fields = ['total', 'criado_em']
-
-

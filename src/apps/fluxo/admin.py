@@ -7,7 +7,7 @@ from django.http import HttpResponse
 from django.contrib import messages
 
 # IMPORT CORRIGIDO: Removido a "Etapa"
-from .models import Requisicao, FluxoRequisicao, Artigo, CustoRequisicao, Refilo, Processo, RoteiroArtigo, Operador, Justificativa, RequisicaoJustificativa
+from .models import Requisicao, FluxoRequisicao, MovimentacaoProducao, Artigo, CustoRequisicao, Refilo, Processo, RoteiroArtigo, Operador, Justificativa, RequisicaoJustificativa
 from django.templatetags.static import static
 from .forms import RequisicaoForm
 
@@ -421,3 +421,14 @@ class JustificativaAdmin(admin.ModelAdmin):
 class RequisicaoJustificativaAdmin(admin.ModelAdmin):
     list_display = ('requisicao', 'justificativa', 'quantidade', 'm2_proporcional')
     search_fields = ('requisicao__cd_requisicao', 'justificativa__nome')
+
+
+@admin.register(MovimentacaoProducao)
+class MovimentacaoProducaoAdmin(admin.ModelAdmin):
+    list_display = ('requisicao', 'processo_destino', 'quantidade', 'operador', 'criado_em')
+    list_filter = ('processo_destino', 'motivo', 'criado_em')
+    search_fields = ('requisicao__cd_requisicao', 'operador__username')
+    readonly_fields = (
+        'requisicao', 'processo_destino', 'quantidade', 'origens',
+        'operador', 'motivo', 'observacao', 'criado_em',
+    )

@@ -75,34 +75,32 @@ def api_busca_requisicao(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def api_leitor_requisicao_info(request, cd_requisicao):
-    """Retorna informações da requisição para o Leitor (quantidade do processo anterior)"""
+    """Retorna o saldo real disponível para avanço no processo informado."""
     try:
         req = Requisicao.objects.get(cd_requisicao=cd_requisicao)
         processo_id = request.query_params.get("processo_id")
-        
+
         total_requisicao = float(req.quantidade or req.qt or 0)
-        
+
         if not processo_id or processo_id == "undefined" or processo_id == "null" or processo_id == "":
             return Response({"cd_requisicao": req.cd_requisicao, "quantidade": total_requisicao})
-            
-        qtd_ja_entrou_aqui = sum((f.quantidade or 0) for f in req.fluxos.filter(processo_id=processo_id))
-        fluxos_disponiveis = req.fluxos.filter(encerrado=False)
-        
-        if not fluxos_disponiveis.exists():
-            qtd_sugerida = total_requisicao - qtd_ja_entrou_aqui
-        else:
-            qtd_sugerida = 0
-            for f in fluxos_disponiveis:
-                if not f.processo:
-                    continue
-                nome_proc = f.processo.nome.upper()
-                is_generica = "AGUARDANDO" in nome_proc or "RECURTIMENTO" in nome_proc or "DESCARREGAMENTO" in nome_proc
-                if str(f.processo.id) == str(processo_id) or is_generica:
-                    qtd_sugerida += (f.quantidade or 0)
-            
+
+        qtd_em_outros_processos = sum(
+            (f.quantidade or 0)
+            for f in req.fluxos.filter(encerrado=False).exclude(processo_id=processo_id)
+        )
+        qtd_ja_entrou_aqui = sum(
+            (f.quantidade or 0)
+            for f in req.fluxos.filter(processo_id=processo_id, encerrado=False)
+        )
+        capacidade_restante = max(total_requisicao - qtd_ja_entrou_aqui, 0)
+        qtd_sugerida = min(qtd_em_outros_processos, capacidade_restante)
+        if qtd_sugerida == 0 and not qtd_em_outros_processos:
+            qtd_sugerida = capacidade_restante
+
         if qtd_sugerida < 0:
             qtd_sugerida = 0
-            
+
         return Response({
             "cd_requisicao": req.cd_requisicao,
             "quantidade": qtd_sugerida

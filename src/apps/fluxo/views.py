@@ -6,8 +6,28 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
-from .models import Processo, Requisicao, FluxoRequisicao, Operador, RoteiroArtigo, Justificativa, RequisicaoJustificativa, Artigo
-from .serializers import PedidoSerializer, ProcessoSerializer, RequisicaoSerializer, FluxoRequisicaoSerializer, OperadorSerializer, JustificativaSerializer, ArtigoSerializer
+from django.db import transaction
+from .models import (
+    Processo,
+    Requisicao,
+    FluxoRequisicao,
+    MovimentacaoProducao,
+    Operador,
+    RoteiroArtigo,
+    Justificativa,
+    RequisicaoJustificativa,
+    Artigo,
+)
+from .serializers import (
+    PedidoSerializer,
+    ProcessoSerializer,
+    RequisicaoSerializer,
+    FluxoRequisicaoSerializer,
+    MovimentacaoProducaoSerializer,
+    OperadorSerializer,
+    JustificativaSerializer,
+    ArtigoSerializer,
+)
 from src.apps.pedido.models import Pedido
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
@@ -721,6 +741,12 @@ class RequisicaoViewSet(viewsets.ModelViewSet):
                     'fluxos',
                     queryset=FluxoRequisicao.objects.select_related('processo', 'operador').order_by('id')
                 ),
+                Prefetch(
+                    'movimentacoes_producao',
+                    queryset=MovimentacaoProducao.objects.select_related(
+                        'processo_destino', 'operador'
+                    ).order_by('-criado_em', '-id'),
+                ),
                 # Vínculos com pedido — evita 1 query por req em get_risco_atraso()
                 Prefetch(
                     'pedido_links',
@@ -736,6 +762,15 @@ class FluxoRequisicaoViewSet(viewsets.ModelViewSet):
     queryset = FluxoRequisicao.objects.all().order_by('-id')
     serializer_class = FluxoRequisicaoSerializer
 
+
+class MovimentacaoProducaoViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = MovimentacaoProducao.objects.select_related(
+        'requisicao', 'processo_destino', 'operador'
+    ).order_by('-criado_em', '-id')
+    serializer_class = MovimentacaoProducaoSerializer
+    permission_classes = [AllowAny]
+
+
 class JustificativaViewSet(viewsets.ModelViewSet):
     queryset = Justificativa.objects.all().order_by('nome')
     serializer_class = JustificativaSerializer
@@ -746,6 +781,7 @@ class JustificativaViewSet(viewsets.ModelViewSet):
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
+@transaction.atomic
 def ler_qrcode_movimentacao(request):
     cd_requisicao = request.data.get('cd_requisicao')
     operador_id = request.data.get('operador_id') 
@@ -753,7 +789,10 @@ def ler_qrcode_movimentacao(request):
     # ⚠️ NOVIDADE: Como o operador tem várias máquinas, o frontend precisa dizer qual ele está a usar
     processo_id = request.data.get('processo_id') 
     
-    qtd_recebida = int(request.data.get('quantidade', 0))
+    try:
+        qtd_recebida = int(request.data.get('quantidade', 0))
+    except (TypeError, ValueError):
+        qtd_recebida = 0
     motivo_diferenca = request.data.get('motivo_diferenca', 'AINDA_EM_PROCESSO')
     justificativa_id = request.data.get('justificativa_id')
 
@@ -761,7 +800,7 @@ def ler_qrcode_movimentacao(request):
         return Response({'sucesso': False, 'erro': 'Dados incompletos ou quantidade inválida.'}, status=400)
 
     try:
-        requisicao = Requisicao.objects.get(cd_requisicao=cd_requisicao)
+        requisicao = Requisicao.objects.select_for_update().get(cd_requisicao=cd_requisicao)
         operador = Operador.objects.get(id=operador_id)
         processo_atual = Processo.objects.get(id=processo_id)
     except Requisicao.DoesNotExist:
@@ -779,132 +818,63 @@ def ler_qrcode_movimentacao(request):
 
     forcar_ajuste = request.data.get('forcar_ajuste', False)
 
-    # --------------------------------------------------------------------------------
-    # 1 E 2. VALIDAÇÃO SIMULTÂNEA DE ROTEIRO E QUANTIDADE
-    # --------------------------------------------------------------------------------
-    fluxos_abertos = list(requisicao.fluxos.filter(encerrado=False).order_by('dt_processo', 'id'))
+    # O fluxo pode seguir qualquer processo. O saldo é consumido dos fluxos
+    # abertos da requisição, sem impor a ordem definida no roteiro do artigo.
+    fluxo_query = requisicao.fluxos.select_for_update().filter(encerrado=False)
+    fluxos_abertos = list(
+        fluxo_query.exclude(processo_id=processo_atual.id)
+        .order_by('dt_processo', 'id')
+    )
     
-    forcar_roteiro = request.data.get('forcar_roteiro', False)
     username = request.data.get('supervisor_username')
     password = request.data.get('supervisor_password')
     justificativa_roteiro = request.data.get('justificativa_roteiro', '').strip()
     
-    precisa_autorizacao_roteiro = False
     precisa_confirmacao_qtd = False
     erros_pendentes = {}
-    
-    # 1. VALIDAÇÃO ROTEIRO POR RoteiroArtigo (Teórico)
-    from .models import RoteiroArtigo
 
-    # Processos que fazem parte da fase preparatória (antes do roteiro do artigo)
-    PROCESSOS_PRE_ROTEIRO = ("AGUARDANDO", "RECURTIMENTO", "DESCARREGAR")
-
-    def _is_pre_roteiro(nome_processo):
-        """Retorna True se o processo é pré-roteiro (genérico/preparatório)."""
-        if not nome_processo:
-            return False
-        nome_upper = nome_processo.upper()
-        return any(p in nome_upper for p in PROCESSOS_PRE_ROTEIRO)
-
-    def _get_primeiro_roteiro(artigo_padrao):
-        """Retorna o primeiro Processo do roteiro do artigo, excluindo pré-roteiro."""
-        if not artigo_padrao:
-            return None
-        r = RoteiroArtigo.objects.filter(
-            artigo=artigo_padrao
-        ).order_by('ordem').exclude(
-            processo__nome__icontains='DESCARREGAR'
-        ).exclude(
-            processo__nome__icontains='RECURTIMENTO'
-        ).first()
-        return r.processo if r else None
-
-    processo_esperado = None
-    ultimo_fluxo_encerrado = requisicao.fluxos.filter(encerrado=True).order_by('-dt_saida', '-id').first()
-
-    if requisicao.artigo_padrao:
-        if ultimo_fluxo_encerrado and ultimo_fluxo_encerrado.processo:
-            nome_ultimo = ultimo_fluxo_encerrado.processo.nome.upper() if ultimo_fluxo_encerrado.processo.nome else ""
-
-            # Saiu de pré-roteiro → esperado é o 1º passo do roteiro teórico
-            if any(p in nome_ultimo for p in PROCESSOS_PRE_ROTEIRO):
-                processo_esperado = _get_primeiro_roteiro(requisicao.artigo_padrao)
-            else:
-                # Já está no meio do roteiro → próximo passo
-                roteiro_anterior = RoteiroArtigo.objects.filter(
-                    artigo=requisicao.artigo_padrao,
-                    processo=ultimo_fluxo_encerrado.processo
-                ).first()
-                if roteiro_anterior and roteiro_anterior.ordem is not None:
-                    proximo_roteiro = RoteiroArtigo.objects.filter(
-                        artigo=requisicao.artigo_padrao,
-                        ordem__gt=roteiro_anterior.ordem
-                    ).order_by('ordem').first()
-                    if proximo_roteiro:
-                        processo_esperado = proximo_roteiro.processo
-        else:
-            # ══════════════════════════════════════════════════════════════════
-            # PRIMEIRA MOVIMENTAÇÃO — nenhum fluxo encerrado ainda.
-            # Se o operador NÃO está num processo pré-roteiro (Recurtimento,
-            # Descarregar), deve obrigatoriamente ir para o 1º do roteiro.
-            # ══════════════════════════════════════════════════════════════════
-            if not _is_pre_roteiro(processo_atual.nome):
-                processo_esperado = _get_primeiro_roteiro(requisicao.artigo_padrao)
-
-    # [BUG #3 CORRIGIDO] Sem roteiro cadastrado para o artigo, não bloqueia.
-    # O fallback anterior usava o processo do fluxo aberto como esperado, criando
-    # falsos positivos e nunca travando o roteiro quando deveria.
-    # processo_esperado permanece None → validação de trava abaixo não dispara.
-
-    # ── VALIDAÇÃO DA TRAVA ─────────────────────────────────────────────────────
-    if processo_esperado and processo_esperado.id != processo_atual.id:
-        # Regra 1: Se o operador está num processo pré-roteiro, sempre permite
-        #          (ex: Recurtimento → Descarregar é uma transição válida)
-        if _is_pre_roteiro(processo_atual.nome):
-            pass  # OK — transição pré-roteiro
-
-        # Regra 2: Se o esperado é genérico (fallback sem roteiro), não bloqueia
-        #          (artigo sem RoteiroArtigo cadastrado — sem dados para validar)
-        elif _is_pre_roteiro(processo_esperado.nome):
-            pass  # OK — sem roteiro cadastrado, não trava a fábrica
-
-        # Regra 3: IDs diferentes mas mesmo nome (possível duplicata de cadastro)
-        elif processo_esperado.nome.strip().upper() == processo_atual.nome.strip().upper():
-            pass  # OK — mesmo processo, cadastro duplicado
-
-        # ══ BLOQUEIO! O processo atual não é o esperado pelo roteiro ══
-        else:
-            if not forcar_roteiro:
-                precisa_autorizacao_roteiro = True
-                erros_pendentes['esperado'] = processo_esperado.nome
-                erros_pendentes['erro_roteiro'] = f'O roteiro teórico exige o processo {processo_esperado.nome}. Deseja forçar a entrada em {processo_atual.nome}?'
-            else:
-                from django.contrib.auth import authenticate
-                user = authenticate(username=username, password=password)
-                if user is None or not (user.is_staff or user.is_superuser):
-                    return Response({'sucesso': False, 'erro': 'Credenciais de supervisor inválidas para forçar roteiro.'}, status=401)
-
-                # Registra a quebra de roteiro
-                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Alteração de roteiro autorizada pelo supervisor {user.username}. O processo esperado era {processo_esperado.nome}, mas foi forçado para {processo_atual.nome}. Justificativa: {justificativa_roteiro}"
-                requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
-                requisicao.save()
-
-    # 2. VALIDAÇÃO QUANTIDADE
-    total_disponivel = sum((f.quantidade or 0) for f in fluxos_abertos)
+    total_requisicao = int(requisicao.quantidade or requisicao.qt or 0)
+    qtd_ja_entrou = sum(
+        (f.quantidade or 0)
+        for f in requisicao.fluxos.filter(
+            processo_id=processo_id,
+            encerrado=False,
+        )
+    )
+    saldo_em_outros_processos = sum((f.quantidade or 0) for f in fluxos_abertos)
+    capacidade_restante = max(total_requisicao - qtd_ja_entrou, 0)
+    total_disponivel = min(saldo_em_outros_processos, capacidade_restante)
     if not fluxos_abertos:
-        # É o primeiro processo! A quantidade base é a da requisição
-        total_requisicao = float(requisicao.quantidade or requisicao.qt or 0)
-        qtd_ja_entrou = sum((f.quantidade or 0) for f in requisicao.fluxos.filter(processo_id=processo_id))
-        total_disponivel = total_requisicao - qtd_ja_entrou
+        # Primeira entrada ou nenhum saldo fora do processo atual.
+        total_disponivel = capacidade_restante
+
+    # O total da requisição é um limite físico absoluto. A autorização de
+    # supervisor pode tratar uma divergência de saldo de origem, mas nunca
+    # pode criar mais peças do que o lote originalmente informado.
+    if qtd_recebida > capacidade_restante:
+        return Response({
+            'sucesso': False,
+            'precisa_confirmacao_qtd': False,
+            'qtd_anterior': capacidade_restante,
+            'total_requisicao': total_requisicao,
+            'erro_qtd': (
+                'A quantidade informada não pode ser recebida porque '
+                f'excede a capacidade restante da requisição em '
+                f'{qtd_recebida - capacidade_restante} peças.'
+            ),
+        }, status=400)
         
-    if qtd_recebida > total_disponivel + 12:
+    if qtd_recebida > total_disponivel:
         if not forcar_ajuste:
             diferenca = qtd_recebida - total_disponivel
             precisa_confirmacao_qtd = True
             erros_pendentes['diferenca'] = diferenca
             erros_pendentes['qtd_anterior'] = total_disponivel
             erros_pendentes['total_requisicao'] = float(requisicao.quantidade or requisicao.qt or 0)
-            erros_pendentes['erro_qtd'] = f'A quantidade recebida excede o saldo da requisição em {int(diferenca)} peças.'
+            erros_pendentes['erro_qtd'] = (
+                f'A quantidade recebida excede o saldo seguro para este processo '
+                f'em {int(diferenca)} peças.'
+            )
         else:
             from django.contrib.auth import authenticate
             user = authenticate(username=username, password=password)
@@ -916,10 +886,9 @@ def ler_qrcode_movimentacao(request):
             requisicao.save()
 
     # SE HOUVER QUALQUER PENDÊNCIA, RETORNA TODAS JUNTAS
-    if precisa_autorizacao_roteiro or precisa_confirmacao_qtd:
+    if precisa_confirmacao_qtd:
         return Response({
             'sucesso': False,
-            'precisa_autorizacao_roteiro': precisa_autorizacao_roteiro,
             'precisa_confirmacao_qtd': precisa_confirmacao_qtd,
             **erros_pendentes
         }, status=400)
@@ -931,6 +900,7 @@ def ler_qrcode_movimentacao(request):
     # processo_atual, preservando o histórico completo de rastreabilidade.
     # --------------------------------------------------------------------------------
     qtd_a_consumir = qtd_recebida
+    origens_movimentadas = []
     for fluxo in fluxos_abertos:
         if qtd_a_consumir <= 0:
             break
@@ -940,6 +910,11 @@ def ler_qrcode_movimentacao(request):
         if qtd_a_consumir >= (fluxo.quantidade or 0):
             qtd_consumida = fluxo.quantidade or 0
             qtd_a_consumir -= qtd_consumida
+            origens_movimentadas.append({
+                'processo_id': fluxo.processo_id,
+                'processo': fluxo.processo.nome if fluxo.processo else None,
+                'quantidade': qtd_consumida,
+            })
 
             # Fecha o fluxo de FILA/AGUARDANDO preservando o processo de origem
             fluxo.encerrado = True
@@ -952,59 +927,91 @@ def ler_qrcode_movimentacao(request):
                 processo=processo_atual,
                 quantidade=qtd_consumida,
                 dt_processo=agora,
-                dt_saida=agora,
-                encerrado=True,
+                encerrado=False,
                 operador=operador.usuario
             )
         else:
             qtd_que_ficou = (fluxo.quantidade or 0) - qtd_a_consumir
 
-            # Reduz a quantidade no fluxo de fila (parte consumida) sem mudar o processo
-            fluxo.quantidade = qtd_a_consumir
-            fluxo.encerrado = True
-            fluxo.dt_saida = agora
-            fluxo.save()
+            # Mantém o saldo restante aberto na etapa de origem e registra a
+            # parcela consumida como um evento histórico separado.
+            quantidade_consumida = qtd_a_consumir
+            origens_movimentadas.append({
+                'processo_id': fluxo.processo_id,
+                'processo': fluxo.processo.nome if fluxo.processo else None,
+                'quantidade': quantidade_consumida,
+            })
+            fluxo.quantidade = qtd_que_ficou
+            fluxo.save(update_fields=['quantidade'])
 
-            # Cria o registro de EXECUÇÃO real para a parte consumida
             FluxoRequisicao.objects.create(
                 requisicao=requisicao,
-                processo=processo_atual,
-                quantidade=qtd_a_consumir,
-                dt_processo=agora,
+                processo=fluxo.processo,
+                quantidade=quantidade_consumida,
+                dt_processo=fluxo.dt_processo,
                 dt_saida=agora,
                 encerrado=True,
                 operador=operador.usuario
             )
 
+            # Cria o registro aberto da parte recebida pelo processo atual
+            FluxoRequisicao.objects.create(
+                requisicao=requisicao,
+                processo=processo_atual,
+                quantidade=quantidade_consumida,
+                dt_processo=agora,
+                encerrado=False,
+                operador=operador.usuario
+            )
+
             if motivo_diferenca == 'PERDA':
+                fluxo.quantidade = 0
+                fluxo.encerrado = True
+                fluxo.dt_saida = agora
+                fluxo.save(update_fields=['quantidade', 'encerrado', 'dt_saida'])
                 proc_perda, _ = Processo.objects.get_or_create(nome="⚠️ PERDA / REFUGO")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_perda, quantidade=qtd_que_ficou, dt_processo=agora, dt_saida=agora, encerrado=True, operador=operador.usuario)
             elif motivo_diferenca == 'ERRO_CONTAGEM':
+                fluxo.quantidade = 0
+                fluxo.encerrado = True
+                fluxo.dt_saida = agora
+                fluxo.save(update_fields=['quantidade', 'encerrado', 'dt_saida'])
                 nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Erro de contagem (-{qtd_que_ficou} peças) regularizado. Excesso removido."
                 requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
                 requisicao.save()
             elif motivo_diferenca == 'REPROCESSO':
+                fluxo.quantidade = 0
+                fluxo.encerrado = True
+                fluxo.dt_saida = agora
+                fluxo.save(update_fields=['quantidade', 'encerrado', 'dt_saida'])
                 proc_rep, _ = Processo.objects.get_or_create(nome="♻️ AGUARDANDO REPROCESSO")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_rep, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
             elif motivo_diferenca == 'NOVO_LOTE':
+                fluxo.quantidade = 0
+                fluxo.encerrado = True
+                fluxo.dt_saida = agora
+                fluxo.save(update_fields=['quantidade', 'encerrado', 'dt_saida'])
                 proc_nl, _ = Processo.objects.get_or_create(nome="🔄 SEPARADO P/ NOVO LOTE")
                 FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
             else:
-                # O restante continua aguardando no processo anterior (fila de espera)
-                nome_dest = processo_anterior.nome if processo_anterior else "N/A"
-                FluxoRequisicao.objects.create(
-                    requisicao=requisicao,
-                    processo=processo_anterior,
-                    quantidade=qtd_que_ficou,
-                    dt_processo=None,  # Sem timestamp: ainda não entrou na máquina
-                    encerrado=False
-                    # Sem operador: aguardando ser processado
-                )
-                nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote dividido: {qtd_que_ficou} peças aguardando na máquina {nome_dest}."
-                requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
-                requisicao.save()
+                # O saldo restante já está preservado no fluxo de origem.
+                pass
             qtd_a_consumir = 0
             break
+
+    # Uma autorização não pode transformar um saldo inexistente em peças
+    # registradas. Se a origem não cobriu toda a entrada, desfaz a transação.
+    if fluxos_abertos and qtd_a_consumir > 0:
+        return Response({
+            'sucesso': False,
+            'precisa_confirmacao_qtd': False,
+            'qtd_anterior': qtd_recebida - qtd_a_consumir,
+            'total_requisicao': total_requisicao,
+            'erro_qtd': (
+                'A quantidade informada excede o saldo físico disponível '
+                f'em {qtd_a_consumir} peças.'
+            ),
+        }, status=400)
 
     # Se não havia fluxos abertos (primeira movimentação), cria o registro diretamente
     if not fluxos_abertos:
@@ -1013,70 +1020,27 @@ def ler_qrcode_movimentacao(request):
             processo=processo_atual,
             quantidade=qtd_recebida,
             dt_processo=agora,
-            dt_saida=agora,
-            encerrado=True,
+            encerrado=False,
             operador=operador.usuario
         )
+        origens_movimentadas.append({
+            'processo_id': None,
+            'processo': None,
+            'quantidade': qtd_recebida,
+        })
 
-    # --------------------------------------------------------------------------------
-    # 4. GERAÇÃO DA FILA DE ESPERA (PRÓXIMO PROCESSO)
-    # --------------------------------------------------------------------------------
-    from .models import RoteiroArtigo
-    proximo_processo = None
-    
-    if requisicao.artigo_padrao:
-        roteiro_atual = RoteiroArtigo.objects.filter(artigo=requisicao.artigo_padrao, processo=processo_atual).first()
-        if roteiro_atual and roteiro_atual.ordem is not None:
-            proximo_roteiro = RoteiroArtigo.objects.filter(artigo=requisicao.artigo_padrao, ordem__gt=roteiro_atual.ordem).order_by('ordem').first()
-            if proximo_roteiro:
-                proximo_processo = proximo_roteiro.processo
-            else:
-                proximo_processo = "FIM"
-                
-    # --- REGRA: Recurtimento e Descarregar são processos padrão (pré-roteiro) ---
-    # Após qualquer um deles, o sistema avança direto para o 1º processo do roteiro do artigo
-    nome_proc_atual = processo_atual.nome.upper()
-    
-    if "RECURTIMENTO" in nome_proc_atual or "DESCARREGAR" in nome_proc_atual:
-        if requisicao.artigo_padrao:
-            # Pega o primeiro processo do roteiro, excluindo os processos padrão
-            primeiro_roteiro = RoteiroArtigo.objects.filter(
-                artigo=requisicao.artigo_padrao
-            ).order_by('ordem').exclude(
-                processo__nome__icontains='DESCARREGAR'
-            ).exclude(
-                processo__nome__icontains='RECURTIMENTO'
-            ).first()
-            if primeiro_roteiro:
-                proximo_processo = primeiro_roteiro.processo
+    # A próxima etapa será criada quando o operador seguinte consumir o saldo
+    # aberto desta etapa. Não duplicar a quantidade criando fila antecipada.
 
-    # --- REGRAS DE FIM DE FLUXO ---
-    if "CLASSIFICA" in nome_proc_atual:
-        proximo_processo, _ = Processo.objects.get_or_create(nome="⏳ Encerrado Aguardando Medir")
-    elif "MEDI" in nome_proc_atual or "PCP" in nome_proc_atual:
-        proximo_processo = "FIM"
-    
-    if proximo_processo == "FIM":
-        requisicao.encerrado = True
-        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Lote finalizado automaticamente após processamento em {processo_atual.nome}."
-        requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
-        requisicao.save()
-    else:
-        if proximo_processo is None:
-            proximo_processo, _ = Processo.objects.get_or_create(nome="⏳ Aguardando Próximo Processo")
-
-        # [BUG #2 CORRIGIDO] dt_processo=None: a hora real de entrada no próximo setor
-        # só é registrada quando o operador daquele setor fizer o apontamento.
-        # Antes, dt_processo=agora fazia o lote "entrar" automaticamente no próximo
-        # processo sem qualquer intervenção humana, causando horários incorretos.
-        FluxoRequisicao.objects.create(
-            requisicao=requisicao,
-            processo=proximo_processo,
-            quantidade=qtd_recebida,
-            dt_processo=None,  # Preenchido quando o operador do próximo setor confirmar
-            encerrado=False
-            # Sem operador: este fluxo está aguardando ser iniciado por alguém
-        )
+    MovimentacaoProducao.objects.create(
+        requisicao=requisicao,
+        processo_destino=processo_atual,
+        quantidade=qtd_recebida,
+        origens=origens_movimentadas,
+        operador=operador.usuario,
+        motivo=motivo_diferenca,
+        observacao=justificativa_roteiro,
+    )
 
     
     # --------------------------------------------------------------------------------
@@ -1136,9 +1100,10 @@ def calcular_qt_mt_media(artigo_nome, nova_quantidade):
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
+@transaction.atomic
 def ajustar_processo_anterior(request):
     """
-    Endpoint para supervisor ajustar a quantidade no processo anterior,
+    Endpoint para supervisor ajustar a quantidade no saldo de origem,
     quando um operador tenta inserir uma quantidade maior que o permitido.
     """
     cd_requisicao = request.data.get('cd_requisicao')
@@ -1168,9 +1133,16 @@ def ajustar_processo_anterior(request):
     except Exception:
         return Response({'sucesso': False, 'erro': 'Requisição ou Processo não encontrados.'}, status=404)
         
-    # 2. Localiza o fluxo anterior
-    is_primeiro_processo = not requisicao.fluxos.exists()
-    if is_primeiro_processo:
+    # Localiza o saldo disponível sem depender da ordem do roteiro.
+    fluxos_abertos = list(
+        requisicao.fluxos.select_for_update()
+        .filter(encerrado=False)
+        .exclude(processo_id=processo_atual.id)
+        .order_by('-dt_processo', '-id')
+    )
+    processo_origem_id = fluxos_abertos[0].processo_id if fluxos_abertos else None
+
+    if processo_origem_id is None:
         # Se é o primeiro processo, o ajuste na verdade é no total do lote (Requisicao)
         qtd_antiga = requisicao.quantidade
         requisicao.quantidade = nova_qtd_anterior
@@ -1191,62 +1163,51 @@ def ajustar_processo_anterior(request):
 
         return Response({'sucesso': True, 'mensagem': 'Ajuste concluído com sucesso.'})
     
-    # Se não é o primeiro processo, ajusta a quantidade dos fluxos abertos no processo anterior
-    fluxos_abertos = list(requisicao.fluxos.filter(encerrado=False).order_by('dt_processo', 'id'))
-    
-    if not fluxos_abertos:
-        # Se não há fluxos abertos, pega o último processo que encerrou e reabre/cria saldo
-        ultimo_fluxo = requisicao.fluxos.order_by('-dt_saida', '-id').first()
-        if not ultimo_fluxo:
-            return Response({'sucesso': False, 'erro': 'Histórico vazio, não é possível ajustar.'}, status=400)
-            
-        processo_anterior_id = ultimo_fluxo.processo_id
-    else:
-        processo_anterior_id = fluxos_abertos[-1].processo_id
-        
-    # Soma atual desse processo
-    fluxos_do_processo = requisicao.fluxos.filter(processo_id=processo_anterior_id)
-    soma_atual = sum(f.quantidade for f in fluxos_do_processo if f.quantidade)
+    soma_atual = sum((f.quantidade or 0) for f in fluxos_abertos)
     
     diferenca = nova_qtd_anterior - soma_atual
     
     agora = timezone.now()
     if diferenca != 0:
-        if fluxos_abertos:
-            ultimo = fluxos_abertos[-1]
-            ultimo.quantidade += diferenca
-            ultimo.save()
-        else:
-            # Não tem fluxo aberto, cria um novo no processo anterior com o saldo adicional
+        if diferenca > 0 and fluxos_abertos:
+            ultimo = fluxos_abertos[0]
+            ultimo.quantidade = (ultimo.quantidade or 0) + diferenca
+            ultimo.save(update_fields=['quantidade'])
+        elif diferenca > 0:
             FluxoRequisicao.objects.create(
                 requisicao=requisicao,
-                processo_id=processo_anterior_id,
+                processo_id=processo_origem_id,
                 quantidade=diferenca,
                 dt_processo=agora,
                 encerrado=False
             )
+        else:
+            restante = -diferenca
+            for fluxo in fluxos_abertos:
+                abatimento = min(restante, fluxo.quantidade or 0)
+                fluxo.quantidade = (fluxo.quantidade or 0) - abatimento
+                if fluxo.quantidade == 0:
+                    fluxo.encerrado = True
+                    fluxo.dt_saida = agora
+                fluxo.save(update_fields=['quantidade', 'encerrado', 'dt_saida'])
+                restante -= abatimento
+                if restante == 0:
+                    break
+            if restante > 0:
+                return Response(
+                    {'sucesso': False, 'erro': 'O saldo informado é menor que o que já foi consumido nesta etapa.'},
+                    status=400
+                )
             
-        proc_ant = Processo.objects.filter(id=processo_anterior_id).first()
+        proc_ant = Processo.objects.filter(id=processo_origem_id).first()
         nome_proc = proc_ant.nome if proc_ant else "Desconhecido"
 
-        # Atualiza a quantidade total da requisição
-        qtd_antiga = requisicao.quantidade or 0
-        nova_qtd_requisicao = qtd_antiga + diferenca
-        requisicao.quantidade = nova_qtd_requisicao
-
-        # Recalcula qt_mt com base na média histórica do mesmo artigo
-        qt_mt_calculado = calcular_qt_mt_media(requisicao.artigo, nova_qtd_requisicao)
-        if qt_mt_calculado is not None:
-            requisicao.qt_mt = qt_mt_calculado
-
         sinal = "+" if diferenca > 0 else ""
-        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste manual ({sinal}{diferenca} peças) no processo {nome_proc} pelo supervisor {user.username}. Quantidade da requisição atualizada de {qtd_antiga} para {nova_qtd_requisicao}."
-        if qt_mt_calculado is not None:
-            nova_obs += f" M² recalculado para {qt_mt_calculado} (média histórica do artigo)."
+        nova_obs = f"[{agora.strftime('%d/%m/%Y %H:%M')}] Ajuste manual ({sinal}{diferenca} peças) no processo {nome_proc} pelo supervisor {user.username}. Saldo da etapa anterior ajustado para {nova_qtd_anterior}."
         if justificativa_ajuste:
             nova_obs += f" Justificativa: {justificativa_ajuste}"
         requisicao.obs = f"{requisicao.obs}\n{nova_obs}" if requisicao.obs else nova_obs
-        requisicao.save()
+        requisicao.save(update_fields=['obs', 'modificado'])
 
     return Response({'sucesso': True, 'mensagem': 'Ajuste concluído com sucesso.'})
 
