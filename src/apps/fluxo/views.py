@@ -1335,10 +1335,22 @@ def imprimir_relatorio_geral_view(request):
         'acabamento': {}
     }
     
+    possui_acabamento = False
     for p in processos_selecionados:
         grupo = 'acabamento' if is_acabamento(p.nome) else 'recurtimento'
+        if grupo == 'acabamento':
+            possui_acabamento = True
+            continue
         relatorio[grupo][p.id] = {
             'nome': p.nome,
+            'turno1': {'pecas': 0, 'mts': 0},
+            'turno2': {'pecas': 0, 'mts': 0},
+            'total': {'pecas': 0, 'mts': 0}
+        }
+
+    if possui_acabamento:
+        relatorio['acabamento']['acabamento'] = {
+            'nome': 'ACABAMENTO',
             'turno1': {'pecas': 0, 'mts': 0},
             'turno2': {'pecas': 0, 'mts': 0},
             'total': {'pecas': 0, 'mts': 0}
@@ -1349,7 +1361,8 @@ def imprimir_relatorio_geral_view(request):
             continue
             
         grupo = 'acabamento' if is_acabamento(processos_dict[f.processo_id]) else 'recurtimento'
-        stats = relatorio[grupo][f.processo_id]
+        chave_processo = 'acabamento' if grupo == 'acabamento' else f.processo_id
+        stats = relatorio[grupo][chave_processo]
         
         req = f.requisicao
         
