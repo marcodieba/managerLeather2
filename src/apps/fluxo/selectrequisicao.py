@@ -7,7 +7,7 @@ from decimal import Decimal
 from django.db import connection, transaction
 import pymssql
 import re
-import difflib
+from .models import Artigo, selecionar_artigo_por_formula
 
 from pathlib import Path
 
@@ -364,25 +364,11 @@ class SelectRequisicao(object):
 
                     texto_artigo_req = str(artigo).strip().upper() 
                     if texto_artigo_req and texto_artigo_req != 'NULL':
-                        cursorsqlite.execute("SELECT id, nome FROM fluxo_artigo")
-                        todos_artigos = cursorsqlite.fetchall()
-                        
-                        artigo_encontrado_id = None
-                        palavras_req = set(texto_artigo_req.split())
-
-                        for a_id, a_nome in sorted(todos_artigos, key=lambda x: len(str(x[1])), reverse=True):
-                            nome_cadastrado = str(a_nome).strip().upper()
-                            palavras_cadastrado = set(nome_cadastrado.split())
-                            
-                            if texto_artigo_req in nome_cadastrado or palavras_req.issubset(palavras_cadastrado):
-                                artigo_encontrado_id = a_id
-                                break
-                        
-                        if not artigo_encontrado_id:
-                            nomes_cadastrados = [a[1] for a in todos_artigos]
-                            matches = difflib.get_close_matches(artigo, nomes_cadastrados, n=1, cutoff=0.5)
-                            if matches:
-                                artigo_encontrado_id = next(a[0] for a in todos_artigos if a[1] == matches[0])
+                        artigo_encontrado = selecionar_artigo_por_formula(
+                            texto_artigo_req,
+                            Artigo.objects.all(),
+                        )
+                        artigo_encontrado_id = artigo_encontrado.id if artigo_encontrado else None
 
                         if artigo_encontrado_id:
                             # CORREÇÃO: ? passa a %s

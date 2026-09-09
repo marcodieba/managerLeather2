@@ -12,6 +12,8 @@ router.register(r'processos', views.ProcessoViewSet)
 router.register(r'requisicoes', views.RequisicaoViewSet, basename='requisicoes')
 router.register(r'fluxorequisicoes', views.FluxoRequisicaoViewSet)
 router.register(r'movimentacoes-producao', views.MovimentacaoProducaoViewSet, basename='movimentacoes-producao')
+router.register(r'qualidade-movimentacoes', views.QualidadeMovimentacaoViewSet, basename='qualidade-movimentacoes')
+router.register(r'genealogia-lotes', views.GenealogiaLoteViewSet, basename='genealogia-lotes')
 router.register(r'operadores', views.OperadorViewSet)
 router.register(r'justificativas', views.JustificativaViewSet)
 

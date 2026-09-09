@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Processo, Requisicao, FluxoRequisicao, MovimentacaoProducao, Operador, Justificativa, RequisicaoJustificativa, CustoTintaRegistro, CustoFulaoRegistro, FechamentoDiario, Artigo
+from .models import Processo, Requisicao, FluxoRequisicao, MovimentacaoProducao, QualidadeMovimentacao, GenealogiaLote, Operador, Justificativa, RequisicaoJustificativa, CustoTintaRegistro, CustoFulaoRegistro, FechamentoDiario, Artigo
 from datetime import datetime
 from src.apps.pedido.models import Pedido
 
@@ -65,7 +65,8 @@ class FluxoRequisicaoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FluxoRequisicao
-        fields = ['id', 'processo', 'processo_nome', 'quantidade', 'encerrado', 'dt_processo', 'dt_saida', 'operador_nome']
+        fields = ['id', 'processo', 'processo_nome', 'quantidade', 'encerrado', 'status_qualidade', 'dt_processo', 'dt_saida', 'operador_nome']
+        read_only_fields = ['status_qualidade']
 
 
 class MovimentacaoProducaoSerializer(serializers.ModelSerializer):
@@ -77,8 +78,27 @@ class MovimentacaoProducaoSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'requisicao', 'processo_destino', 'processo_destino_nome',
             'quantidade', 'origens', 'operador', 'operador_nome',
-            'motivo', 'observacao', 'criado_em',
+            'motivo', 'observacao', 'criado_em', 'chave_operacao',
+            'status_qualidade', 'lote_pai', 'lote_filho', 'operacao',
+            'quantidade_kg', 'quantidade_m2',
         ]
+        read_only_fields = fields
+
+
+class QualidadeMovimentacaoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QualidadeMovimentacao
+        fields = ['id', 'requisicao', 'movimentacao', 'status', 'autorizado_por',
+                  'justificativa', 'criado_em']
+        read_only_fields = fields
+
+
+class GenealogiaLoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GenealogiaLote
+        fields = ['id', 'requisicao', 'movimentacao', 'lote_pai', 'lote_filho',
+                  'operacao', 'quantidade_pecas', 'quantidade_kg',
+                  'quantidade_m2', 'criado_em']
         read_only_fields = fields
 
 
@@ -90,6 +110,8 @@ class ArtigoSerializer(serializers.ModelSerializer):
 class RequisicaoSerializer(serializers.ModelSerializer):
     fluxos = FluxoRequisicaoSerializer(many=True, required=False)
     movimentacoes_producao = MovimentacaoProducaoSerializer(many=True, read_only=True)
+    auditorias_qualidade = QualidadeMovimentacaoSerializer(many=True, read_only=True)
+    genealogias_lote = GenealogiaLoteSerializer(many=True, read_only=True)
     justificativas_registadas = RequisicaoJustificativaSerializer(many=True, read_only=True)
     risco_atraso = serializers.SerializerMethodField()
     artigo_generico = serializers.CharField(source='artigo_padrao.nome', read_only=True)
@@ -100,7 +122,7 @@ class RequisicaoSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'data', 'cd_requisicao', 'artigo', 'nr_pedido', 'quantidade', 'lote', 
             'dt_requisicao', 'modificado', 'encerrado', 'fluxos', 'movimentacoes_producao',
-            'setor', 'qt_mt', 'm2', 'qt',
+            'setor', 'qt_mt', 'm2', 'qt', 'auditorias_qualidade', 'genealogias_lote',
             'am', 'exp_qt', 'exp_m2', 'exp_am', 'rend', 'kg_blue', 'seco', 'justificativas_registadas',
             'custo_requisicao', 'risco_atraso', 'artigo_generico', 'artigo_padrao',
             'cor', 'espessura', 'classe', 'fulao'

@@ -13,6 +13,8 @@ from src.apps.estoque_pq.models import Produto
 import difflib
 import qrcode
 import base64
+import re
+import unicodedata
 from io import BytesIO
 
 
@@ -32,6 +34,55 @@ class Artigo(models.Model):
 
     def __str__(self):
         return f"{self.nome}"
+
+
+def selecionar_artigo_por_formula(nome_formula, artigos=None):
+    """Seleciona o artigo cadastrado que melhor representa uma fórmula do ERP."""
+    if not nome_formula:
+        return None
+
+    def normalizar(valor):
+        texto = unicodedata.normalize('NFKD', str(valor or ''))
+        texto = ''.join(char for char in texto if not unicodedata.combining(char))
+        return re.sub(r'[^A-Z0-9]+', ' ', texto.upper()).strip()
+
+    formula = normalizar(nome_formula)
+    palavras_formula = set(formula.split())
+    candidatos = list(artigos if artigos is not None else Artigo.objects.all())
+    candidatos = [artigo for artigo in candidatos if getattr(artigo, 'nome', None)]
+
+    if not candidatos:
+        return None
+
+    # Primeiro prioriza nomes completos do artigo contidos na fórmula,
+    # escolhendo o candidato mais específico quando houver mais de um.
+    contidos = [
+        artigo for artigo in candidatos
+        if normalizar(artigo.nome) and normalizar(artigo.nome) in formula
+    ]
+    if contidos:
+        return max(contidos, key=lambda artigo: len(normalizar(artigo.nome)))
+
+    # Depois aceita o artigo cujas palavras estejam presentes na fórmula.
+    por_palavras = [
+        artigo for artigo in candidatos
+        if set(normalizar(artigo.nome).split()).issubset(palavras_formula)
+    ]
+    if por_palavras:
+        return max(
+            por_palavras,
+            key=lambda artigo: (len(set(normalizar(artigo.nome).split())), len(normalizar(artigo.nome))),
+        )
+
+    # Por fim, usa similaridade normalizada como fallback.
+    melhor = max(
+        candidatos,
+        key=lambda artigo: difflib.SequenceMatcher(
+            None, formula, normalizar(artigo.nome)
+        ).ratio(),
+    )
+    similaridade = difflib.SequenceMatcher(None, formula, normalizar(melhor.nome)).ratio()
+    return melhor if similaridade >= 0.5 else None
 
 
 # 3. A "RECEITA" DO ARTIGO (Roteiro Teórico Informativo)
@@ -208,27 +259,7 @@ def antes_de_salvar_requisicao(sender, instance, **kwargs):
 
     # 2. Vinculação Automática do Artigo Padrão
     if instance.artigo and not instance.artigo_padrao:
-        texto_limpo = str(instance.artigo).strip().upper()
-        todos_artigos_cadastrados = Artigo.objects.all()
-        
-        artigo_encontrado = None
-        artigos_ordenados = sorted(todos_artigos_cadastrados, key=lambda x: len(x.nome), reverse=True)
-        palavras_req = set(texto_limpo.split())
-
-        for a in artigos_ordenados:
-            nome_cadastrado = a.nome.strip().upper()
-            palavras_cadastrado = set(nome_cadastrado.split())
-            
-            if nome_cadastrado in texto_limpo or palavras_cadastrado.issubset(palavras_req):
-                artigo_encontrado = a
-                break
-        
-        # Se não achou exato, usa similaridade
-        if not artigo_encontrado:
-            nomes_cadastrados = [a.nome for a in todos_artigos_cadastrados]
-            matches = difflib.get_close_matches(instance.artigo, nomes_cadastrados, n=1, cutoff=0.5)
-            if matches:
-                artigo_encontrado = Artigo.objects.filter(nome=matches[0]).first()
+        artigo_encontrado = selecionar_artigo_por_formula(instance.artigo)
 
         # Vincula o artigo (Como é pre_save, não precisa do comando instance.save() !)
         if artigo_encontrado:
@@ -278,6 +309,16 @@ class FluxoRequisicao(models.Model):
     dt_processo = models.DateTimeField(('Data e Hora de Entrada'), null=True, blank=True)
     dt_saida = models.DateTimeField(('Data e Hora de Saída'), null=True, blank=True)
     encerrado = models.BooleanField(('Encerrado neste setor?'), default=False)
+    status_qualidade = models.CharField(
+        max_length=20,
+        choices=[
+            ('APROVADO', 'Aprovado'),
+            ('BLOQUEADO', 'Bloqueado'),
+            ('REPROCESSO', 'Reprocesso'),
+            ('REFUGO', 'Refugo'),
+        ],
+        default='APROVADO',
+    )
     operador = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Operador")
 
     @classmethod
@@ -328,6 +369,26 @@ class MovimentacaoProducao(models.Model):
     )
     motivo = models.CharField(max_length=50, blank=True, default='')
     observacao = models.TextField(blank=True, default='')
+    # Chave opcional enviada pelo cliente para tornar o POST idempotente.
+    chave_operacao = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    status_qualidade = models.CharField(
+        max_length=20,
+        choices=[
+            ('APROVADO', 'Aprovado'),
+            ('BLOQUEADO', 'Bloqueado'),
+            ('REPROCESSO', 'Reprocesso'),
+            ('REFUGO', 'Refugo'),
+        ],
+        default='APROVADO',
+    )
+    lote_pai = models.CharField(max_length=100, blank=True, default='')
+    lote_filho = models.CharField(max_length=100, blank=True, default='')
+    operacao = models.ForeignKey(
+        Processo, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='movimentacoes_operacao',
+    )
+    quantidade_kg = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    quantidade_m2 = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -336,6 +397,54 @@ class MovimentacaoProducao(models.Model):
     def __str__(self):
         destino = self.processo_destino.nome if self.processo_destino else "Desconhecido"
         return f"{self.requisicao.cd_requisicao}: {self.quantidade} em {destino}"
+
+
+class QualidadeMovimentacao(models.Model):
+    """Auditoria de qualidade e autorização de uma requisição/movimentação."""
+
+    STATUS = MovimentacaoProducao._meta.get_field('status_qualidade').choices
+    requisicao = models.ForeignKey(
+        Requisicao, on_delete=models.CASCADE, related_name='auditorias_qualidade'
+    )
+    movimentacao = models.ForeignKey(
+        MovimentacaoProducao, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='auditorias_qualidade'
+    )
+    status = models.CharField(max_length=20, choices=STATUS, default='APROVADO')
+    autorizado_por = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='autorizacoes_qualidade'
+    )
+    justificativa = models.TextField(blank=True, default='')
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-criado_em', '-id']
+
+
+class GenealogiaLote(models.Model):
+    """Relação pai/filho mínima para rastrear divisões e transformações de lote."""
+
+    requisicao = models.ForeignKey(
+        Requisicao, on_delete=models.CASCADE, related_name='genealogias_lote'
+    )
+    movimentacao = models.ForeignKey(
+        MovimentacaoProducao, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='genealogias_lote'
+    )
+    lote_pai = models.CharField(max_length=100)
+    lote_filho = models.CharField(max_length=100)
+    operacao = models.ForeignKey(
+        Processo, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='genealogias_lote'
+    )
+    quantidade_pecas = models.BigIntegerField(null=True, blank=True)
+    quantidade_kg = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    quantidade_m2 = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-criado_em', '-id']
 
 
 class CustoRequisicao(models.Model):
@@ -501,4 +610,3 @@ class FechamentoDiario(models.Model):
 
     def __str__(self):
         return f"{self.data} | Total: {self.total} m²"
-

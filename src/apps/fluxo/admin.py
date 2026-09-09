@@ -7,7 +7,7 @@ from django.http import HttpResponse
 from django.contrib import messages
 
 # IMPORT CORRIGIDO: Removido a "Etapa"
-from .models import Requisicao, FluxoRequisicao, MovimentacaoProducao, Artigo, CustoRequisicao, Refilo, Processo, RoteiroArtigo, Operador, Justificativa, RequisicaoJustificativa
+from .models import Requisicao, FluxoRequisicao, MovimentacaoProducao, QualidadeMovimentacao, GenealogiaLote, Artigo, CustoRequisicao, Refilo, Processo, RoteiroArtigo, Operador, Justificativa, RequisicaoJustificativa
 from django.templatetags.static import static
 from .forms import RequisicaoForm
 
@@ -432,3 +432,19 @@ class MovimentacaoProducaoAdmin(admin.ModelAdmin):
         'requisicao', 'processo_destino', 'quantidade', 'origens',
         'operador', 'motivo', 'observacao', 'criado_em',
     )
+
+
+@admin.register(QualidadeMovimentacao)
+class QualidadeMovimentacaoAdmin(admin.ModelAdmin):
+    list_display = ('requisicao', 'movimentacao', 'status', 'autorizado_por', 'criado_em')
+    list_filter = ('status', 'criado_em')
+    search_fields = ('requisicao__cd_requisicao', 'justificativa')
+    readonly_fields = ('criado_em',)
+
+
+@admin.register(GenealogiaLote)
+class GenealogiaLoteAdmin(admin.ModelAdmin):
+    list_display = ('lote_pai', 'lote_filho', 'requisicao', 'operacao', 'quantidade_pecas', 'criado_em')
+    list_filter = ('operacao', 'criado_em')
+    search_fields = ('lote_pai', 'lote_filho', 'requisicao__cd_requisicao')
+    readonly_fields = ('criado_em',)

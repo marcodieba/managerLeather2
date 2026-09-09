@@ -2,7 +2,7 @@ from rest_framework import viewsets
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.timezone import is_aware, make_naive
 from django.db.models import Prefetch, Avg, F
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
@@ -12,6 +12,8 @@ from .models import (
     Requisicao,
     FluxoRequisicao,
     MovimentacaoProducao,
+    QualidadeMovimentacao,
+    GenealogiaLote,
     Operador,
     RoteiroArtigo,
     Justificativa,
@@ -24,6 +26,8 @@ from .serializers import (
     RequisicaoSerializer,
     FluxoRequisicaoSerializer,
     MovimentacaoProducaoSerializer,
+    QualidadeMovimentacaoSerializer,
+    GenealogiaLoteSerializer,
     OperadorSerializer,
     JustificativaSerializer,
     ArtigoSerializer,
@@ -762,12 +766,59 @@ class FluxoRequisicaoViewSet(viewsets.ModelViewSet):
     queryset = FluxoRequisicao.objects.all().order_by('-id')
     serializer_class = FluxoRequisicaoSerializer
 
+    @action(detail=True, methods=['post'], url_path='liberar-qualidade')
+    @transaction.atomic
+    def liberar_qualidade(self, request, pk=None):
+        fluxo = self.get_object()
+        username = request.data.get('supervisor_username')
+        password = request.data.get('supervisor_password')
+        justificativa = str(request.data.get('justificativa') or '').strip()
+        if not username or not password or not justificativa:
+            return Response({
+                'erro': 'Supervisor e justificativa são obrigatórios para liberar a qualidade.'
+            }, status=400)
+
+        from django.contrib.auth import authenticate
+        supervisor = authenticate(username=username, password=password)
+        if supervisor is None or not (supervisor.is_staff or supervisor.is_superuser):
+            return Response({'erro': 'Credenciais de supervisor inválidas.'}, status=401)
+
+        fluxo.status_qualidade = 'APROVADO'
+        fluxo.save(update_fields=['status_qualidade'])
+        QualidadeMovimentacao.objects.create(
+            requisicao=fluxo.requisicao,
+            status='APROVADO',
+            autorizado_por=supervisor,
+            justificativa=justificativa,
+        )
+        return Response({
+            'sucesso': True,
+            'fluxo_id': fluxo.id,
+            'mensagem': 'Fluxo liberado para a próxima movimentação.',
+        })
+
 
 class MovimentacaoProducaoViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = MovimentacaoProducao.objects.select_related(
         'requisicao', 'processo_destino', 'operador'
     ).order_by('-criado_em', '-id')
     serializer_class = MovimentacaoProducaoSerializer
+    permission_classes = [AllowAny]
+
+
+class QualidadeMovimentacaoViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = QualidadeMovimentacao.objects.select_related(
+        'requisicao', 'movimentacao', 'autorizado_por'
+    ).order_by('-criado_em', '-id')
+    serializer_class = QualidadeMovimentacaoSerializer
+    permission_classes = [AllowAny]
+
+
+class GenealogiaLoteViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = GenealogiaLote.objects.select_related(
+        'requisicao', 'movimentacao', 'operacao'
+    ).order_by('-criado_em', '-id')
+    serializer_class = GenealogiaLoteSerializer
     permission_classes = [AllowAny]
 
 
@@ -783,6 +834,11 @@ class JustificativaViewSet(viewsets.ModelViewSet):
 @permission_classes([AllowAny])
 @transaction.atomic
 def ler_qrcode_movimentacao(request):
+    chave_operacao = (
+        request.headers.get('Idempotency-Key')
+        or request.data.get('chave_operacao')
+        or request.data.get('operation_key')
+    )
     cd_requisicao = request.data.get('cd_requisicao')
     operador_id = request.data.get('operador_id') 
     
@@ -795,6 +851,22 @@ def ler_qrcode_movimentacao(request):
         qtd_recebida = 0
     motivo_diferenca = request.data.get('motivo_diferenca', 'AINDA_EM_PROCESSO')
     justificativa_id = request.data.get('justificativa_id')
+    status_qualidade = str(
+        request.data.get('status_qualidade')
+        or request.data.get('qualidade_status')
+        or 'APROVADO'
+    ).upper()
+    status_validos = {choice[0] for choice in QualidadeMovimentacao.STATUS}
+    if status_qualidade not in status_validos:
+        return Response({'sucesso': False, 'erro': 'Status de qualidade inválido.'}, status=400)
+    justificativa_qualidade = str(
+        request.data.get('justificativa_qualidade') or ''
+    ).strip()
+    if status_qualidade != 'APROVADO' and not justificativa_qualidade:
+        return Response({
+            'sucesso': False,
+            'erro': 'Informe a justificativa obrigatória para o status de qualidade.',
+        }, status=400)
 
     if not cd_requisicao or not operador_id or not processo_id or qtd_recebida <= 0:
         return Response({'sucesso': False, 'erro': 'Dados incompletos ou quantidade inválida.'}, status=400)
@@ -810,6 +882,20 @@ def ler_qrcode_movimentacao(request):
     except Processo.DoesNotExist:
         return Response({'sucesso': False, 'erro': 'Processo não encontrado.'}, status=404)
 
+    # A requisição bloqueada serializa a verificação e a criação da chave,
+    # evitando uma corrida entre duas leituras simultâneas do mesmo QR.
+    if chave_operacao:
+        existente = MovimentacaoProducao.objects.filter(
+            chave_operacao=str(chave_operacao)[:100]
+        ).first()
+        if existente:
+            return Response({
+                'sucesso': True,
+                'duplicada': True,
+                'mensagem': 'Operação já registrada; nenhuma movimentação adicional foi criada.',
+                'movimentacao_id': existente.id,
+            })
+
     # Valida se o operador tem o processo no seu perfil
     if not operador.processos.filter(id=processo_atual.id).exists():
         return Response({'sucesso': False, 'erro': f'O operador não tem permissão para atuar no setor: {processo_atual.nome}.'}, status=403)
@@ -820,15 +906,42 @@ def ler_qrcode_movimentacao(request):
 
     # O fluxo pode seguir qualquer processo. O saldo é consumido dos fluxos
     # abertos da requisição, sem impor a ordem definida no roteiro do artigo.
-    fluxo_query = requisicao.fluxos.select_for_update().filter(encerrado=False)
+    fluxo_query = requisicao.fluxos.select_for_update().filter(
+        encerrado=False,
+        status_qualidade='APROVADO',
+    )
     fluxos_abertos = list(
         fluxo_query.exclude(processo_id=processo_atual.id)
         .order_by('dt_processo', 'id')
     )
+    fluxos_bloqueados = list(
+        requisicao.fluxos.filter(encerrado=False).exclude(status_qualidade='APROVADO')
+    )
+    if fluxos_bloqueados:
+        return Response({
+            'sucesso': False,
+            'qualidade_bloqueada': True,
+            'erro': (
+                'A requisição possui quantidade bloqueada pela qualidade. '
+                'Libere o fluxo com autorização antes de movimentar novamente.'
+            ),
+        }, status=409)
     
     username = request.data.get('supervisor_username')
     password = request.data.get('supervisor_password')
     justificativa_roteiro = request.data.get('justificativa_roteiro', '').strip()
+    autorizador_qualidade = None
+    if status_qualidade != 'APROVADO':
+        from django.contrib.auth import authenticate
+        autorizador_qualidade = authenticate(username=username, password=password)
+        if autorizador_qualidade is None or not (
+            autorizador_qualidade.is_staff or autorizador_qualidade.is_superuser
+        ):
+            return Response({
+                'sucesso': False,
+                'precisa_autorizacao_qualidade': True,
+                'erro': 'Credenciais de supervisor inválidas para autorizar a qualidade.',
+            }, status=401)
     
     precisa_confirmacao_qtd = False
     erros_pendentes = {}
@@ -928,6 +1041,7 @@ def ler_qrcode_movimentacao(request):
                 quantidade=qtd_consumida,
                 dt_processo=agora,
                 encerrado=False,
+                status_qualidade=status_qualidade,
                 operador=operador.usuario
             )
         else:
@@ -961,6 +1075,7 @@ def ler_qrcode_movimentacao(request):
                 quantidade=quantidade_consumida,
                 dt_processo=agora,
                 encerrado=False,
+                status_qualidade=status_qualidade,
                 operador=operador.usuario
             )
 
@@ -1021,6 +1136,7 @@ def ler_qrcode_movimentacao(request):
             quantidade=qtd_recebida,
             dt_processo=agora,
             encerrado=False,
+            status_qualidade=status_qualidade,
             operador=operador.usuario
         )
         origens_movimentadas.append({
@@ -1032,7 +1148,7 @@ def ler_qrcode_movimentacao(request):
     # A próxima etapa será criada quando o operador seguinte consumir o saldo
     # aberto desta etapa. Não duplicar a quantidade criando fila antecipada.
 
-    MovimentacaoProducao.objects.create(
+    movimentacao = MovimentacaoProducao.objects.create(
         requisicao=requisicao,
         processo_destino=processo_atual,
         quantidade=qtd_recebida,
@@ -1040,7 +1156,36 @@ def ler_qrcode_movimentacao(request):
         operador=operador.usuario,
         motivo=motivo_diferenca,
         observacao=justificativa_roteiro,
+        chave_operacao=str(chave_operacao)[:100] if chave_operacao else None,
+        status_qualidade=status_qualidade,
+        lote_pai=str(request.data.get('lote_pai') or requisicao.lote or ''),
+        lote_filho=str(request.data.get('lote_filho') or ''),
+        operacao=processo_atual,
+        quantidade_kg=request.data.get('quantidade_kg') or None,
+        quantidade_m2=request.data.get('quantidade_m2') or None,
     )
+
+    QualidadeMovimentacao.objects.create(
+        requisicao=requisicao,
+        movimentacao=movimentacao,
+        status=status_qualidade,
+        autorizado_por=autorizador_qualidade,
+        justificativa=justificativa_qualidade or justificativa_roteiro,
+    )
+
+    lote_pai = str(request.data.get('lote_pai') or requisicao.lote or '').strip()
+    lote_filho = str(request.data.get('lote_filho') or '').strip()
+    if lote_pai and lote_filho:
+        GenealogiaLote.objects.create(
+            requisicao=requisicao,
+            movimentacao=movimentacao,
+            lote_pai=lote_pai,
+            lote_filho=lote_filho,
+            operacao=processo_atual,
+            quantidade_pecas=qtd_recebida,
+            quantidade_kg=request.data.get('quantidade_kg') or None,
+            quantidade_m2=request.data.get('quantidade_m2') or None,
+        )
 
     
     # --------------------------------------------------------------------------------
@@ -1061,6 +1206,7 @@ def ler_qrcode_movimentacao(request):
 
     return Response({
         'sucesso': True,
+        'movimentacao_id': movimentacao.id,
         'mensagem': f'✅ Entrada de {qtd_recebida} peças registada com sucesso no setor de {processo_atual.nome}!'
     })
 
