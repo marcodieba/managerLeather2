@@ -1065,6 +1065,7 @@ def ler_qrcode_movimentacao(request):
                 dt_processo=fluxo.dt_processo,
                 dt_saida=agora,
                 encerrado=True,
+                status_qualidade=fluxo.status_qualidade or 'APROVADO',
                 operador=operador.usuario
             )
 
@@ -1085,7 +1086,7 @@ def ler_qrcode_movimentacao(request):
                 fluxo.dt_saida = agora
                 fluxo.save(update_fields=['quantidade', 'encerrado', 'dt_saida'])
                 proc_perda, _ = Processo.objects.get_or_create(nome="⚠️ PERDA / REFUGO")
-                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_perda, quantidade=qtd_que_ficou, dt_processo=agora, dt_saida=agora, encerrado=True, operador=operador.usuario)
+                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_perda, quantidade=qtd_que_ficou, dt_processo=agora, dt_saida=agora, encerrado=True, status_qualidade=status_qualidade, operador=operador.usuario)
             elif motivo_diferenca == 'ERRO_CONTAGEM':
                 fluxo.quantidade = 0
                 fluxo.encerrado = True
@@ -1100,14 +1101,14 @@ def ler_qrcode_movimentacao(request):
                 fluxo.dt_saida = agora
                 fluxo.save(update_fields=['quantidade', 'encerrado', 'dt_saida'])
                 proc_rep, _ = Processo.objects.get_or_create(nome="♻️ AGUARDANDO REPROCESSO")
-                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_rep, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
+                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_rep, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False, status_qualidade=status_qualidade)
             elif motivo_diferenca == 'NOVO_LOTE':
                 fluxo.quantidade = 0
                 fluxo.encerrado = True
                 fluxo.dt_saida = agora
                 fluxo.save(update_fields=['quantidade', 'encerrado', 'dt_saida'])
                 proc_nl, _ = Processo.objects.get_or_create(nome="🔄 SEPARADO P/ NOVO LOTE")
-                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False)
+                FluxoRequisicao.objects.create(requisicao=requisicao, processo=proc_nl, quantidade=qtd_que_ficou, dt_processo=agora, encerrado=False, status_qualidade=status_qualidade)
             else:
                 # O saldo restante já está preservado no fluxo de origem.
                 pass
@@ -1325,7 +1326,8 @@ def ajustar_processo_anterior(request):
                 processo_id=processo_origem_id,
                 quantidade=diferenca,
                 dt_processo=agora,
-                encerrado=False
+                encerrado=False,
+                status_qualidade='APROVADO'
             )
         else:
             restante = -diferenca

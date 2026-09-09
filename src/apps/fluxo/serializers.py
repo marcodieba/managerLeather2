@@ -160,6 +160,7 @@ class RequisicaoSerializer(serializers.ModelSerializer):
 
             for fluxo_data in fluxos_data:
                 processo = fluxo_data.pop('processo')
+                fluxo_data['status_qualidade'] = fluxo_data.get('status_qualidade') or 'APROVADO'
 
                 # Converte datetime para date, se necessário
                 dt_processo = fluxo_data.get('dt_processo')

@@ -321,6 +321,13 @@ class FluxoRequisicao(models.Model):
     )
     operador = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Operador")
 
+    def save(self, *args, **kwargs):
+        # Registros antigos e integrações podem enviar nulo; a etapa sempre
+        # precisa ter um estado de qualidade válido para respeitar o NOT NULL.
+        if not self.status_qualidade:
+            self.status_qualidade = 'APROVADO'
+        return super().save(*args, **kwargs)
+
     @classmethod
     def from_db(cls, db, field_names, values):
         instance = super().from_db(db, field_names, values)
