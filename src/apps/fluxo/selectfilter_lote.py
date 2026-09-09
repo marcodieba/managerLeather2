@@ -15,6 +15,15 @@ class ProcessoSerializer(serializers.ModelSerializer):
 
 class FluxoRequisicaoSerializer(serializers.ModelSerializer):
     processo = serializers.PrimaryKeyRelatedField(queryset=Processo.objects.all())  # Espera apenas o ID
+    status_qualidade = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default='APROVADO',
+    )
+
+    def validate_status_qualidade(self, value):
+        return value or 'APROVADO'
 
     class Meta:
         model = FluxoRequisicao
@@ -37,6 +46,7 @@ class RequisicaoSerializer(serializers.ModelSerializer):
 
         for fluxo_data in fluxos_data:
             processo = fluxo_data.pop('processo')
+            fluxo_data['status_qualidade'] = fluxo_data.get('status_qualidade') or 'APROVADO'
 
             # Converte datetime para date, se necessário
             dt_processo = fluxo_data.get('dt_processo')
@@ -50,6 +60,5 @@ class RequisicaoSerializer(serializers.ModelSerializer):
             )
 
         return instance
-
 
 

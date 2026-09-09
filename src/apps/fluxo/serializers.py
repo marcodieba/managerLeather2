@@ -57,16 +57,25 @@ class FluxoRequisicaoSerializer(serializers.ModelSerializer):
     processo = serializers.PrimaryKeyRelatedField(queryset=Processo.objects.all())  # Espera apenas o ID
     processo_nome = serializers.CharField(source='processo.nome', read_only=True)
     operador_nome = serializers.SerializerMethodField()
+    status_qualidade = serializers.ChoiceField(
+        choices=FluxoRequisicao._meta.get_field('status_qualidade').choices,
+        required=False,
+        allow_null=True,
+        default='APROVADO',
+    )
 
     def get_operador_nome(self, obj):
         if obj.operador:
             return obj.operador.get_full_name() or obj.operador.username
         return None
 
+    def validate_status_qualidade(self, value):
+        return value or 'APROVADO'
+
     class Meta:
         model = FluxoRequisicao
         fields = ['id', 'processo', 'processo_nome', 'quantidade', 'encerrado', 'status_qualidade', 'dt_processo', 'dt_saida', 'operador_nome']
-        read_only_fields = ['status_qualidade']
+        read_only_fields = ['processo_nome', 'operador_nome']
 
 
 class MovimentacaoProducaoSerializer(serializers.ModelSerializer):
