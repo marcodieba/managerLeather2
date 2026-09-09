@@ -27,7 +27,7 @@ class FluxoRequisicaoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FluxoRequisicao
-        fields = ['id', 'processo', 'encerrado', 'dt_processo']
+        fields = ['id', 'processo', 'encerrado', 'dt_processo', 'status_qualidade']
 
 class RequisicaoSerializer(serializers.ModelSerializer):
     fluxos = FluxoRequisicaoSerializer(many=True)
@@ -60,5 +60,4 @@ class RequisicaoSerializer(serializers.ModelSerializer):
             )
 
         return instance
-
 

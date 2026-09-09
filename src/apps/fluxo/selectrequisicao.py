@@ -354,13 +354,25 @@ class SelectRequisicao(object):
 
                     # CORREÇÃO: ? passa a %s
                     cursorsqlite.execute("""
-                        INSERT INTO fluxo_fluxorequisicao (requisicao_id, processo_id, quantidade, dt_processo, encerrado)
-                        SELECT %s, %s, %s, %s, 0
+                        INSERT INTO fluxo_fluxorequisicao (
+                            requisicao_id, processo_id, quantidade, dt_processo,
+                            encerrado, status_qualidade
+                        )
+                        SELECT %s, %s, %s, %s, 0, 'APROVADO'
                         WHERE NOT EXISTS (
                             SELECT 1 FROM fluxo_fluxorequisicao
                             WHERE requisicao_id = %s AND processo_id = %s
                         )
                     """, (requisicao_id, processo_id_recurtimento, qtd_fluxo, dt_fluxo, requisicao_id, processo_id_recurtimento))
+
+                    # Registros criados por versões anteriores do sincronizador
+                    # não podem permanecer com qualidade nula.
+                    cursorsqlite.execute("""
+                        UPDATE fluxo_fluxorequisicao
+                        SET status_qualidade = 'APROVADO'
+                        WHERE requisicao_id = %s
+                          AND status_qualidade IS NULL
+                    """, (requisicao_id,))
 
                     texto_artigo_req = str(artigo).strip().upper() 
                     if texto_artigo_req and texto_artigo_req != 'NULL':

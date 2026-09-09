@@ -291,7 +291,8 @@ def iniciar_fluxo_recurtimento(sender, instance, created, **kwargs):
             processo=processo_recurtimento,
             quantidade=instance.quantidade,
             dt_processo=data_inicio,
-            encerrado=False
+            encerrado=False,
+            status_qualidade='APROVADO',
         )
 
 
