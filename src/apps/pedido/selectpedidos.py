@@ -22,9 +22,16 @@ class SelectPedidos(object):
         # Comparação de decimais com tolerância
         if abs(float(remoto[8] or 0.0) - float(local[10] or 0.0)) > 0.0001: return True           # quantidade
         
+        # 🔥 AQUI ESTAVA O ERRO: Faltava verificar se a quantidade_entregue mudou!
+        if abs(float(remoto[9] or 0.0) - float(local[11] or 0.0)) > 0.0001: return True           # quantidade_entregue
+        
+        # 🔥 TAMBÉM IMPORTANTE: Verificar se a Data Programada mudou
+        if str(remoto[10] or '').strip() != str(local[12] or '').strip(): return True             # dt_programada
+        
         # Para evitar loops infinitos, confiamos no select já formatado
         if str(remoto[13] or '').strip() != str(local[14] or '').strip(): return True  # espessura
         if str(remoto[14] or '').strip() != str(local[15] or '').strip(): return True  # unidade_medida
+        
         return False
 
     def _formatar_dt(self, valor):
